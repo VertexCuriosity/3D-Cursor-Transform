@@ -11,7 +11,8 @@ website = "https://vertexcuriosity.com"
 type = "add-on"
 
 tags = [
-    # TODO
+    "3D View",
+    "User Interface"
 ]
 
 blender_version_min = "5.1.0"
