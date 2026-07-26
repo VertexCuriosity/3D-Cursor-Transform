@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "cursor_transform"
 version = "1.0.0"
 name = "3D Cursor Transform"
-tagline = "Bring Blender's native transform tools to the 3D Cursor"
+tagline = "Bring Blender's native transform system to the 3D Cursor"
 maintainer = "VertexCuriosity"
 type = "add-on"
 
