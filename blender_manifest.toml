@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "cursor_transform"
+version = ""
+name = "3D Cursor Transform"
+tagline = ""
+maintainer = ""
+type = "add-on"
+
+website = ""
+
+# Blender Extensions tags
+tags = [
+]
+
+blender_version_min = ""
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+copyright = [
+]
