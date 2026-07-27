@@ -25,9 +25,22 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 
 ## Installation
 
-Blender Extensions
-or
-Manual installation
+3D Cursor Transform can be installed directly through Blender Extensions or manually from the latest release on the [GitHub Releases](../../releases) page.
+
+### Blender Extensions (Recommended)
+
+1. Open **Edit → Preferences → Get Extensions**.
+2. Search for **3D Cursor Transform**.
+3. Click **Install**.
+4. Enable the add-on if it is not enabled automatically.
+
+### Manual Installation
+
+1. Download the latest release from the GitHub **Releases** page.
+2. In Blender, open **Edit → Preferences → Add-ons**.
+3. Click the ▼ menu in the top-right corner and choose **Install from Disk...**.
+4. Browse to the downloaded .zip file and select it.
+5. Enable **3D Cursor Transform**.
 
 ## Usage
 
