@@ -44,6 +44,32 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 
 ## Usage
 
+3D Cursor Transform is designed to work exactly like Blender's native transform system. If you're already familiar with transforming objects, you'll feel right at home using the same shortcuts and controls with the 3D Cursor.
+
+### Transform the 3D Cursor
+
+Select the **3D Cursor** tool and press **G** to move or **R** to rotate the 3D Cursor.
+
+*[GIF showing G and R]*
+
+### Constraints
+
+Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to cycle through the available transform orientations. Use **Shift + X**, **Y**, and **Z** for plane constraints.
+
+*[GIF showing constraints and orientation switching]*
+
+### Precision and Snapping
+
+Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
+
+*[GIF showing precision and snapping]*
+
+### Transform Gizmo
+
+Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo**.
+
+*[Screenshot or GIF of the gizmo]*
+
 ## Usage
 
 1. Select the **3D Cursor** tool from the toolbar.
@@ -59,10 +85,6 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 4. Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo**.
 
 For a complete guide, see the documentation on the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
-
-## Screenshots / GIFs
-
-(show everything)
 
 ## Additional Feature
 
