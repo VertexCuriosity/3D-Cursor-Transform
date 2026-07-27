@@ -6,7 +6,7 @@ bl_info = {
     "name": "3D Cursor Transform",
     "author": "Suus | VertexCuriosity",
     "version": (1, 0, 0),
-    "blender": (5, 1, 0),
+    "blender": (4, 5, 0),
     "location": "View3D > Cursor Tool",
     "description": "Native-style transform controls for the 3D Cursor with gizmos, shortcuts, constraints and snapping.",
     "category": "3D View",
