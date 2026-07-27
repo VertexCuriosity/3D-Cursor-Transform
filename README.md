@@ -58,6 +58,12 @@ Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the s
 
 *[GIF showing constraints and orientation switching]*
 
+### Axis switching
+
+**MMB** to pick an axis during a transformation.
+
+*[GIF showing axis picking]*
+
 ### Precision and Snapping
 
 Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
@@ -69,20 +75,6 @@ Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric value
 Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo**.
 
 *[Screenshot or GIF of the gizmo]*
-
-## Usage
-
-1. Select the **3D Cursor** tool from the toolbar.
-2. Press **G** to move or **R** to rotate the 3D Cursor.
-3. Use Blender's familiar transform controls, including:
-   - **X**, **Y**, and **Z** for axis constraints.
-   - **Shift + X**, **Y**, and **Z** for plane constraints.
-   - Press an axis key again to switch transform orientation.
-   - **MMB** to pick an axis during a transformation.
-   - **Shift** for precision mode.
-   - **Ctrl** for snapping.
-   - **Numeric input** for precise values.
-4. Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo**.
 
 For a complete guide, see the documentation on the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
