@@ -90,8 +90,10 @@ This makes it easy to place objects directly onto sloped or angled surfaces with
 
 ## Limitations
 
-Explain the translation orientation limitation.
+When moving the 3D Cursor, axis constraints always use the **Global** orientation. This is a limitation of Blender's current Python API, which does not expose the active transform orientation for translation.
 
----
+Rotation constraints are unaffected and fully support Blender's available transform orientations.
+
+If Blender adds support for this in the future, the add-on will be updated accordingly.
 
 ## License
