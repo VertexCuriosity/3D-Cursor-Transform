@@ -6,8 +6,12 @@ Move and rotate the 3D Cursor using Blender's familiar keyboard shortcuts and tr
 
 ## Why this add-on exists
 
-Explain the limitation in Blender.
-Explain why you built it.
+Blender already provides an excellent transform system for objects. The 3D Cursor has always been one of Blender's most powerful tools, but it can't be transformed using that transform system.
+
+I often use the 3D Cursor as a placement and modeling tool, and I found myself wanting those transform controls for the 3D cursor as well.
+So I built this add-on.
+
+It extends Blender's existing transform system to the 3D Cursor, allowing you to move and rotate it using the same shortcuts, constraints, snapping, and gizmos you already know.
 
 ## Features
 
