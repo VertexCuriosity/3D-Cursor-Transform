@@ -97,3 +97,7 @@ Rotation constraints are unaffected and fully support Blender's available transf
 If Blender adds support for this in the future, the add-on will be updated accordingly.
 
 ## License
+
+3D Cursor Transform is licensed under the GPL-3.0-or-later.
+
+See the [LICENSE](LICENSE) file for details.
