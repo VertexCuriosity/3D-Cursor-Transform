@@ -1,24 +1,31 @@
+# -----------------------------------------------------------------------------
 # 3D Cursor Transform
-# Native-style transform gizmos and modal operators for Blender's 3D Cursor.
-# Supports translation, rotation, constraints, snapping and ghost previews.
+#
+# Brings Blender's native transform system to the 3D Cursor.
+# Supports translation, rotation, transform constraints, snapping, and ghost previews.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+# -----------------------------------------------------------------------------
 
 bl_info = {
     "name": "3D Cursor Transform",
-    "author": "Suus | VertexCuriosity",
+    "author": "VertexCuriosity",
     "version": (1, 0, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Cursor Tool",
-    "description": "Native-style transform controls for the 3D Cursor with gizmos, shortcuts, constraints and snapping.",
+    "description": "Bring Blender's native transform system to the 3D Cursor with gizmos, constraints, and snapping.",
     "category": "3D View",
 }
 
-import bpy
+
 import math
+
+import bpy
 import gpu
 from bpy.app.handlers import persistent
-from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
-from mathutils import Matrix, Vector, Quaternion
+from gpu_extras.batch import batch_for_shader
+from mathutils import Matrix, Quaternion, Vector
 
 
 # ─────────────────────────────────────────────────────────────────────────────
