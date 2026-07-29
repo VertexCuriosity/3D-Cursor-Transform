@@ -75,6 +75,12 @@ PLANE_NORMAL_AXIS = {
     "YZ": "X",
 }
 
+# Blender's native rotation operators.
+_NATIVE_ROTATE_IDNAMES = frozenset({
+    "TRANSFORM_OT_rotate",
+    "TRANSFORM_OT_trackball",
+})
+
 # Shared gizmo opacity
 AXIS_IDLE_ALPHA = 0.5
 AXIS_ACTIVE_ALPHA = 1.0
@@ -332,14 +338,6 @@ def translate_modal_running(context):
             return True
 
     return False
-
-
-# Native rotate operators that can appear after pressing R during translate.
-# Used to temporarily hide the custom gizmo while Blender handles rotation.
-_NATIVE_ROTATE_IDNAMES = frozenset((
-    "TRANSFORM_OT_rotate",
-    "TRANSFORM_OT_trackball",
-))
 
 
 def native_rotate_modal_running(context):
