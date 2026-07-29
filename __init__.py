@@ -29,18 +29,13 @@ from mathutils import Matrix, Quaternion, Vector
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Globals
+# Module Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Rotation align preferences for 3D Cursor
-_CURSOR_ALIGN_KNOWN_OBJECTS = set()
-_CURSOR_ALIGN_LAST_LOCATIONS = {}
-_CURSOR_ALIGN_IS_RUNNING = False
-
-# Constraint and orientation helpers
+# Transform constraints and orientation
 AXIS_ROT = {
-    "X": Matrix.Rotation(math.radians( 90.0), 4, 'Y'),
-    "Y": Matrix.Rotation(math.radians(-90.0), 4, 'X'),
+    "X": Matrix.Rotation(math.radians(90.0), 4, "Y"),
+    "Y": Matrix.Rotation(math.radians(-90.0), 4, "X"),
     "Z": Matrix.Identity(4),
 }
 
@@ -51,15 +46,15 @@ AXIS_INDEX = {
 }
 
 AXIS_CONSTRAINT = {
-    "X": (True,  False, False),
-    "Y": (False, True,  False),
+    "X": (True, False, False),
+    "Y": (False, True, False),
     "Z": (False, False, True),
 }
 
 PLANE_CONSTRAINT = {
-    "XY": (True,  True,  False),
-    "XZ": (True,  False, True),
-    "YZ": (False, True,  True),
+    "XY": (True, True, False),
+    "XZ": (True, False, True),
+    "YZ": (False, True, True),
 }
 
 PLANE_OFFSET = {
@@ -70,8 +65,8 @@ PLANE_OFFSET = {
 
 PLANE_ROT = {
     "XY": Matrix.Identity(4),
-    "XZ": Matrix.Rotation(math.radians(90.0), 4, 'X'),
-    "YZ": Matrix.Rotation(math.radians(90.0), 4, 'Y'),
+    "XZ": Matrix.Rotation(math.radians(90.0), 4, "X"),
+    "YZ": Matrix.Rotation(math.radians(90.0), 4, "Y"),
 }
 
 PLANE_NORMAL_AXIS = {
@@ -80,7 +75,7 @@ PLANE_NORMAL_AXIS = {
     "YZ": "X",
 }
 
-# Shared gizmo alpha values
+# Shared gizmo opacity
 AXIS_IDLE_ALPHA = 0.5
 AXIS_ACTIVE_ALPHA = 1.0
 
@@ -88,7 +83,7 @@ GHOST_AXIS_ALPHA = 0.5
 GHOST_PLANE_FILL_ALPHA = 0.18
 GHOST_PLANE_OUTLINE_ALPHA = 0.5
 
-# Plane handle visuals
+# Translation plane handles
 PLANE_FILL_ALPHA = 0.30
 PLANE_OUTLINE_ALPHA = 0.5
 PLANE_FILL_HOVER_ALPHA = 0.55
@@ -123,11 +118,8 @@ ROTATE_RING_BASIS_SAMPLE = 0.25
 ROTATE_CONSTRAINT_LINE_WIDTH = 2.0
 ROTATE_CONSTRAINT_AXIS_SAMPLE = 0.25
 
-# MMB axis pickup. While MMB is held during a constrained or view rotation,
-# all three X/Y/Z axis lines become visible; non-highlighted ones use this
-# alpha. The proximity threshold is the maximum screen-space distance (in
-# pixels at 1x DPI; scaled by pixel_size at runtime) between the mouse and
-# an axis line for that axis to be picked.
+# MMB axis pickup
+# The proximity threshold is measured in screen pixels at 1x DPI.
 ROTATE_MMB_AXIS_LINE_DIM_ALPHA = 0.35
 ROTATE_MMB_PROXIMITY_THRESHOLD_PX = 30.0
 
@@ -142,11 +134,8 @@ FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR = 0.36
 ROTATE_SNAP_STEP = math.radians(5.0)
 ROTATE_TICK_COLOR = (1.0, 1.0, 1.0, 0.95)
 
-# Tick geometry. Length and offset are in local (ring-radius) units so they
-# scale with the gizmo and follow the projected ellipse precisely. Width is
-# in screen pixels — that's the line shader's native unit, and it matches
-# Blender's own gizmo line-width convention so ticks look identical to
-# native rotation gizmo lines at any zoom.
+# Tick geometry
+# Length and offset use local ring-radius units; width uses screen pixels.
 ROTATE_TICK_OFFSET_LOCAL = 0.10
 ROTATE_TICK_LENGTH_LOCAL = 0.10
 ROTATE_TICK_WIDTH_PX = 1.0
@@ -155,30 +144,31 @@ ROTATE_VIEW_TICK_OFFSET_LOCAL = 0.10
 ROTATE_VIEW_TICK_LENGTH_LOCAL = 0.10
 ROTATE_VIEW_TICK_WIDTH_PX = 1.0
 
-# Runtime modal state
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Runtime State
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 3D Cursor alignment tracking
+_CURSOR_ALIGN_KNOWN_OBJECTS = set()
+_CURSOR_ALIGN_LAST_LOCATIONS = {}
+_CURSOR_ALIGN_IS_RUNNING = False
+
+# Translation modal state
 _TRANSLATE_GHOST_START_LOC = None
 _TRANSLATE_GHOST_START_ORIENT = None
 
+# Rotation modal state
 _ROTATE_ACTIVE_ORIENT = None
 _ROTATE_ACTIVE_VIEW = None
 _ROTATE_GUIDE_START_ANGLE = 0.0
 _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
 _ROTATE_GUIDE_CTRL_PRESSED = False
 
-# MMB axis-pickup state. While MMB is held during a constrained or view
-# rotation, all three X/Y/Z axis lines become visible; as the mouse
-# approaches one of them the constraint immediately switches to that axis
-# (same logic as pressing X/Y/Z, just triggered by proximity), so rotation
-# never pauses — it just continues seamlessly on the newly active axis.
-# Releasing MMB simply hides the other two lines; the axis that's active
-# at release-time stays active.
+# MMB axis-pickup state
 _ROTATE_MMB_HELD = False
 
-# Previous-axis memory for the R-toggle to/from trackball. Set when the
-# user presses R in rotate_modal (entering trackball); read when they
-# press R again in rotate_free_modal (leaving trackball back to whatever
-# axis or view mode they came from). Cleared on full modal exit so a
-# fresh R from idle doesn't restore stale state.
+# Previous constraint restored when leaving trackball rotation
 _ROTATE_PREVIOUS_AXIS = None
 
 
