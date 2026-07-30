@@ -29,8 +29,10 @@ from mathutils import Matrix, Quaternion, Vector
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module Constants
+# Globals
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Module constants ─────────────────────────────────────────────────────────
 
 # Transform constraints and orientation
 AXIS_ROT = {
@@ -75,13 +77,12 @@ PLANE_NORMAL_AXIS = {
     "YZ": "X",
 }
 
-# Blender's native rotation operators.
+# Modal operator identifiers and input mapping
 _NATIVE_ROTATE_IDNAMES = frozenset({
     "TRANSFORM_OT_rotate",
     "TRANSFORM_OT_trackball",
 })
 
-# Maps Blender key event types to digit characters for numeric modal input.
 _NUMERIC_DIGIT_MAP = {
     'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
     'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
@@ -160,9 +161,7 @@ ROTATE_VIEW_TICK_LENGTH_LOCAL = 0.10
 ROTATE_VIEW_TICK_WIDTH_PX = 1.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Runtime State
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Runtime state ────────────────────────────────────────────────────────────
 
 # 3D Cursor alignment tracking
 _CURSOR_ALIGN_KNOWN_OBJECTS = set()
