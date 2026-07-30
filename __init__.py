@@ -81,6 +81,15 @@ _NATIVE_ROTATE_IDNAMES = frozenset({
     "TRANSFORM_OT_trackball",
 })
 
+# Maps Blender key event types to digit characters for numeric modal input.
+_NUMERIC_DIGIT_MAP = {
+    'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
+    'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
+    'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3',
+    'NUMPAD_4': '4', 'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7',
+    'NUMPAD_8': '8', 'NUMPAD_9': '9',
+}
+
 # Shared gizmo opacity
 AXIS_IDLE_ALPHA = 0.5
 AXIS_ACTIVE_ALPHA = 1.0
@@ -182,7 +191,7 @@ _ROTATE_PREVIOUS_AXIS = None
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Rotation align preferences for 3D Cursor ─────────────────────────────────
+# ── Cursor alignment helpers ─────────────────────────────────────────────────
 
 def get_addon_preferences(context):
     addon = context.preferences.addons.get(__name__)
@@ -282,7 +291,7 @@ def cursor_align_rotation_handler(scene, depsgraph):
         _CURSOR_ALIGN_IS_RUNNING = False
 
 
-# ── Context, viewport, and native modal state ────────────────────────────────
+# ── Context, viewport, and modal state ───────────────────────────────────────
 
 def active_tool_is_cursor(context):
     workspace = context.workspace
@@ -487,7 +496,7 @@ def restore_cursor_rotation(cursor, rot_mode, start_rot):
         cursor.rotation_euler = start_rot
 
 
-# ── Modal cleanup helpers ────────────────────────────────────────────────────
+# ── Modal operation helpers ──────────────────────────────────────────────────
 
 def tag_viewport_redraw(context):
     """Redraw the active viewport region and area when available."""
@@ -522,15 +531,6 @@ def cleanup_rotation_modal(context):
 
     tag_viewport_redraw(context)
 
-
-# Maps Blender key event types to digit characters for numeric modal input.
-_NUMERIC_DIGIT_MAP = {
-    'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
-    'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
-    'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3',
-    'NUMPAD_4': '4', 'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7',
-    'NUMPAD_8': '8', 'NUMPAD_9': '9',
-}
 
 def handle_numeric_key(key, numeric_input, numeric_active):
     """
@@ -775,7 +775,7 @@ def draw_status_translate(header, context):
     row.label(text="Precision Mode")
 
 
-# ── Theme and color helpers ──────────────────────────────────────────────────
+# ── Gizmo appearance helpers ─────────────────────────────────────────────────
 
 def get_theme_gizmo_colors(context):
     """
@@ -805,8 +805,6 @@ def axis_highlight_color(rgb):
 
     return (r, g, b)
 
-
-# ── View-dependent fading ────────────────────────────────────────────────────
 
 def smoothstep(edge0, edge1, x):
     if edge0 == edge1:
@@ -865,8 +863,7 @@ def plane_view_alpha(context, plane_normal_vec, min_alpha=0.0, fade_start=0.16, 
     return min_alpha + ((1.0 - min_alpha) * fade)
 
 
-
-# ── 2D overlay drawing ───────────────────────────────────────────────────────
+# ── 2D overlay geometry and drawing ──────────────────────────────────────────
 
 def _build_sector_fan_vertices(a0, a1, steps):
     """
@@ -1068,7 +1065,7 @@ def _draw_translate_axis_line_op(op):
     gpu.state.blend_set('NONE')
 
 
-# ── 2D ring and angle math ───────────────────────────────────────────────────
+# ── 2D ring and rotation math ────────────────────────────────────────────────
 
 def _solve_2d_basis(vec, basis_x, basis_y):
     """
@@ -1107,6 +1104,27 @@ def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
         return None
 
     return math.atan2(v, u)
+
+
+def _map_to_arcball(center_2d, mouse_2d, radius_px):
+    """
+    Map a 2D mouse position to a virtual unit sphere centered on center_2d.
+    Points outside the sphere are projected onto the sphere rim.
+    """
+    if center_2d is None or mouse_2d is None or radius_px <= 1e-6:
+        return None
+
+    x = (mouse_2d.x - center_2d.x) / radius_px
+    y = (mouse_2d.y - center_2d.y) / radius_px
+
+    d = x * x + y * y
+
+    if d <= 1.0:
+        z = math.sqrt(1.0 - d)
+        return Vector((x, y, z)).normalized()
+
+    inv_len = 1.0 / math.sqrt(d)
+    return Vector((x * inv_len, y * inv_len, 0.0)).normalized()
 
 
 # ── Screen-space projection helpers ──────────────────────────────────────────
@@ -1222,30 +1240,7 @@ def _closest_axis_to_mouse(mouse_2d, center_2d, axis_dirs_2d, threshold_px):
     return None
 
 
-# ── Free-rotation arcball helper ─────────────────────────────────────────────
-
-def _map_to_arcball(center_2d, mouse_2d, radius_px):
-    """
-    Map a 2D mouse position to a virtual unit sphere centered on center_2d.
-    Points outside the sphere are projected onto the sphere rim.
-    """
-    if center_2d is None or mouse_2d is None or radius_px <= 1e-6:
-        return None
-
-    x = (mouse_2d.x - center_2d.x) / radius_px
-    y = (mouse_2d.y - center_2d.y) / radius_px
-
-    d = x * x + y * y
-
-    if d <= 1.0:
-        z = math.sqrt(1.0 - d)
-        return Vector((x, y, z)).normalized()
-
-    inv_len = 1.0 / math.sqrt(d)
-    return Vector((x * inv_len, y * inv_len, 0.0)).normalized()
-
-
-# ── Rotation guide draw callback ─────────────────────────────────────────────
+# ── Rotation guide drawing ───────────────────────────────────────────────────
 
 def _draw_shortcut_axis_line(op):
     """
