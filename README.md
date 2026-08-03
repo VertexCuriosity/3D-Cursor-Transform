@@ -76,7 +76,6 @@ Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo*
 
 *[Screenshot or GIF of the gizmo]*
 
-For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
 ## Optional Preferences
 
@@ -87,6 +86,8 @@ When enabled, newly added objects and **Selection to Cursor** operations automat
 This makes it easy to place objects directly onto sloped or angled surfaces without having to rotate them afterwards.
 
 *[GIF showing the preference and its effect]*
+
+For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
 ## Limitations
 
