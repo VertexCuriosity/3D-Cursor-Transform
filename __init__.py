@@ -1201,64 +1201,96 @@ def _draw_translate_axis_line_op(operator):
 
 # ── 2D ring and rotation math ────────────────────────────────────────────────
 
-def _solve_2d_basis(vec, basis_x, basis_y):
+def _solve_2d_basis(vector, basis_x, basis_y):
     """
-    Solve vec = basis_x * u + basis_y * v in 2D.
-    Returns (u, v), or None if the basis is degenerate.
+    Express a 2D vector in the given basis.
+
+    Return the two basis coefficients, or None if the basis is degenerate.
     """
-    det = basis_x.x * basis_y.y - basis_x.y * basis_y.x
-    if abs(det) < 1e-8:
+    determinant = (
+        basis_x.x * basis_y.y
+        - basis_x.y * basis_y.x
+    )
+
+    if abs(determinant) < 1e-8:
         return None
 
-    u = (vec.x * basis_y.y - vec.y * basis_y.x) / det
-    v = (basis_x.x * vec.y - basis_x.y * vec.x) / det
-    return u, v
+    coefficient_x = (
+        vector.x * basis_y.y
+        - vector.y * basis_y.x
+    ) / determinant
+
+    coefficient_y = (
+        basis_x.x * vector.y
+        - basis_x.y * vector.x
+    ) / determinant
+
+    return coefficient_x, coefficient_y
 
 
 def _wrap_pi(angle):
-    return (angle + math.pi) % (2.0 * math.pi) - math.pi
+    """Wrap an angle to the range from -π to π."""
+    return (angle + math.pi) % math.tau - math.pi
 
 
 def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
-    """
-    Return the angular mouse position on a projected ring ellipse in screen space.
-
-    The returned angle is measured in the local 2D basis defined by basis_x and
-    basis_y, or None if the basis cannot be solved reliably.
-    """
-    if center is None or mouse is None or basis_x is None or basis_y is None:
+    """Return the mouse angle within a projected ellipse basis."""
+    if (
+        center is None
+        or mouse is None
+        or basis_x is None
+        or basis_y is None
+    ):
         return None
 
-    coeff = _solve_2d_basis(mouse - center, basis_x, basis_y)
-    if coeff is None:
+    coefficients = _solve_2d_basis(
+        mouse - center,
+        basis_x,
+        basis_y,
+    )
+
+    if coefficients is None:
         return None
 
-    u, v = coeff
-    if abs(u) < 1e-8 and abs(v) < 1e-8:
+    coefficient_x, coefficient_y = coefficients
+
+    if (
+        abs(coefficient_x) < 1e-8
+        and abs(coefficient_y) < 1e-8
+    ):
         return None
 
-    return math.atan2(v, u)
+    return math.atan2(coefficient_y, coefficient_x)
 
 
-def _map_to_arcball(center_2d, mouse_2d, radius_px):
+def _map_to_arcball(center_2d, mouse_2d, radius_pixels):
     """
-    Map a 2D mouse position to a virtual unit sphere centered on center_2d.
-    Points outside the sphere are projected onto the sphere rim.
+    Map a screen-space mouse position to a virtual unit sphere.
+
+    Positions outside the sphere are projected onto its rim.
     """
-    if center_2d is None or mouse_2d is None or radius_px <= 1e-6:
+    if (
+        center_2d is None
+        or mouse_2d is None
+        or radius_pixels <= 1e-6
+    ):
         return None
 
-    x = (mouse_2d.x - center_2d.x) / radius_px
-    y = (mouse_2d.y - center_2d.y) / radius_px
+    x = (mouse_2d.x - center_2d.x) / radius_pixels
+    y = (mouse_2d.y - center_2d.y) / radius_pixels
+    distance_squared = x * x + y * y
 
-    d = x * x + y * y
-
-    if d <= 1.0:
-        z = math.sqrt(1.0 - d)
+    if distance_squared <= 1.0:
+        z = math.sqrt(1.0 - distance_squared)
         return Vector((x, y, z)).normalized()
 
-    inv_len = 1.0 / math.sqrt(d)
-    return Vector((x * inv_len, y * inv_len, 0.0)).normalized()
+    inverse_length = 1.0 / math.sqrt(distance_squared)
+
+    return Vector((
+        x * inverse_length,
+        y * inverse_length,
+        0.0,
+    )).normalized()
 
 
 # ── Screen-space projection helpers ──────────────────────────────────────────
