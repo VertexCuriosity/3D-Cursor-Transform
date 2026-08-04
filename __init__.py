@@ -599,23 +599,18 @@ def tag_viewport_redraw(context):
     """Redraw the active viewport region and area when available."""
     if context.region is not None:
         context.region.tag_redraw()
+
     if context.area is not None:
         context.area.tag_redraw()
 
 
 def cleanup_rotation_modal(context):
-    """
-    Clear shared rotation UI state and restore the window after a rotation
-    modal operation ends.
-
-    Also forces a viewport redraw so the last POST_PIXEL guide frame does
-    not linger after the draw handler is removed.
-    """
+    """Clear shared rotation state and restore the viewport UI."""
     global _ROTATE_PREVIOUS_AXIS
     _ROTATE_PREVIOUS_AXIS = None
 
-    wm = context.window_manager
-    wm.cursortransform_active_rotate_axis = ""
+    window_manager = context.window_manager
+    window_manager.cursortransform_active_rotate_axis = ""
 
     if context.area is not None:
         context.area.header_text_set(None)
@@ -631,13 +626,10 @@ def cleanup_rotation_modal(context):
 
 def handle_numeric_key(key, numeric_input, numeric_active):
     """
-    Process a single keypress for modal numeric input.
+    Process a keypress for modal numeric input.
 
-    Returns (numeric_input, numeric_active, confirm, consume)
-      numeric_input  : updated string
-      numeric_active : updated bool
-      confirm        : True if Enter was pressed — caller should finish the modal
-      consume        : True if the key was handled — caller should return RUNNING_MODAL
+    Return the updated input, active state, confirmation state,
+    and whether the key was consumed.
     """
     if key in _NUMERIC_DIGIT_MAP:
         return numeric_input + _NUMERIC_DIGIT_MAP[key], True, False, True
@@ -645,18 +637,22 @@ def handle_numeric_key(key, numeric_input, numeric_active):
     if key in {'PERIOD', 'NUMPAD_PERIOD'}:
         if '.' not in numeric_input:
             return numeric_input + '.', True, False, True
+
         return numeric_input, numeric_active, False, True
 
     if key in {'MINUS', 'NUMPAD_MINUS'}:
         if numeric_input.startswith('-'):
             return numeric_input[1:], True, False, True
+
         return '-' + numeric_input, True, False, True
 
     if key == 'BACK_SPACE' and numeric_active:
-        new = numeric_input[:-1]
-        if new in ('', '-'):
+        updated_input = numeric_input[:-1]
+
+        if updated_input in ('', '-'):
             return '', False, False, True
-        return new, True, False, True
+
+        return updated_input, True, False, True
 
     if key in {'RET', 'NUMPAD_ENTER'}:
         return numeric_input, numeric_active, True, True
@@ -665,24 +661,18 @@ def handle_numeric_key(key, numeric_input, numeric_active):
 
 
 def parse_numeric_input(numeric_input):
-    """
-    Convert the current numeric input string to a float.
-    Returns 0.0 for empty or incomplete strings.
-    """
+    """Convert modal numeric input to a float."""
+    if numeric_input in ('', '-'):
+        return 0.0
+
     try:
-        return float(numeric_input) if numeric_input not in ('', '-') else 0.0
+        return float(numeric_input)
     except ValueError:
         return 0.0
 
 
 def switch_native_rotate_to_translate(context, axis=None):
-    """
-    Finish custom cursor rotation and start native cursor translation.
-
-    axis:
-      "X", "Y", "Z" = constrained translate
-      None          = free translate
-    """
+    """Finish cursor rotation and start native cursor translation."""
     cleanup_rotation_modal(context)
 
     if axis in {"X", "Y", "Z"}:
@@ -691,12 +681,12 @@ def switch_native_rotate_to_translate(context, axis=None):
             axis=axis,
             release_confirm=False,
         )
-    else:
-        bpy.ops.cursortransform.translate_free(
-            'INVOKE_DEFAULT',
-            release_confirm=False,
-        )
+        return
 
+    bpy.ops.cursortransform.translate_free(
+        'INVOKE_DEFAULT',
+        release_confirm=False,
+    )
 
 # ── Status bar helpers ───────────────────────────────────────────────────────
 
