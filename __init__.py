@@ -523,20 +523,16 @@ def alternate_orient_label(context):
 
     return "Global"
 
-
 # ── Cursor rotation helpers ──────────────────────────────────────────────────
 
 def get_cursor_quaternion(cursor):
-    """
-    Read the cursor's current rotation as a quaternion
-    regardless of its current rotation mode.
-    """
-    mode = cursor.rotation_mode
+    """Return the cursor rotation as a quaternion."""
+    rotation_mode = cursor.rotation_mode
 
-    if mode == 'QUATERNION':
+    if rotation_mode == 'QUATERNION':
         return cursor.rotation_quaternion.copy()
 
-    if mode == 'AXIS_ANGLE':
+    if rotation_mode == 'AXIS_ANGLE':
         angle = cursor.rotation_axis_angle[0]
         axis = Vector(cursor.rotation_axis_angle[1:4]).normalized()
         return Quaternion(axis, angle)
@@ -545,55 +541,56 @@ def get_cursor_quaternion(cursor):
 
 
 def cache_cursor_rotation_state(cursor):
-    """
-    Cache the cursor rotation state needed for modal rotation and cancel restore.
-    """
-    rot_mode = cursor.rotation_mode
+    """Cache the cursor rotation state for a modal operation."""
+    rotation_mode = cursor.rotation_mode
 
-    if rot_mode == 'QUATERNION':
-        start_rot = cursor.rotation_quaternion.copy()
-    elif rot_mode == 'AXIS_ANGLE':
-        start_rot = tuple(cursor.rotation_axis_angle)
+    if rotation_mode == 'QUATERNION':
+        start_rotation = cursor.rotation_quaternion.copy()
+    elif rotation_mode == 'AXIS_ANGLE':
+        start_rotation = tuple(cursor.rotation_axis_angle)
     else:
-        start_rot = cursor.rotation_euler.copy()
+        start_rotation = cursor.rotation_euler.copy()
 
     return {
-        "rot_mode": rot_mode,
-        "start_rot": start_rot,
+        "rot_mode": rotation_mode,
+        "start_rot": start_rotation,
         "start_quat": get_cursor_quaternion(cursor),
         "start_euler_compat": cursor.rotation_euler.copy(),
     }
 
 
-def set_cursor_from_quaternion(cursor, quat, euler_compat):
-    """
-    Write a quaternion back to the cursor while preserving
-    the cursor's current rotation mode.
-    """
-    mode = cursor.rotation_mode
+def set_cursor_from_quaternion(cursor, quaternion, euler_compat):
+    """Apply a quaternion while preserving the cursor's rotation mode."""
+    rotation_mode = cursor.rotation_mode
 
-    if mode == 'QUATERNION':
-        cursor.rotation_quaternion = quat
+    if rotation_mode == 'QUATERNION':
+        cursor.rotation_quaternion = quaternion
         return
 
-    if mode == 'AXIS_ANGLE':
-        axis, angle = quat.to_axis_angle()
-        cursor.rotation_axis_angle = (angle, axis.x, axis.y, axis.z)
+    if rotation_mode == 'AXIS_ANGLE':
+        axis, angle = quaternion.to_axis_angle()
+        cursor.rotation_axis_angle = (
+            angle,
+            axis.x,
+            axis.y,
+            axis.z,
+        )
         return
 
-    cursor.rotation_euler = quat.to_euler(mode, euler_compat)
+    cursor.rotation_euler = quaternion.to_euler(
+        rotation_mode,
+        euler_compat,
+    )
 
 
-def restore_cursor_rotation(cursor, rot_mode, start_rot):
-    """
-    Restore a previously cached cursor rotation in its original rotation mode.
-    """
-    if rot_mode == 'QUATERNION':
-        cursor.rotation_quaternion = start_rot
-    elif rot_mode == 'AXIS_ANGLE':
-        cursor.rotation_axis_angle = start_rot
+def restore_cursor_rotation(cursor, rotation_mode, start_rotation):
+    """Restore a previously cached cursor rotation."""
+    if rotation_mode == 'QUATERNION':
+        cursor.rotation_quaternion = start_rotation
+    elif rotation_mode == 'AXIS_ANGLE':
+        cursor.rotation_axis_angle = start_rotation
     else:
-        cursor.rotation_euler = start_rot
+        cursor.rotation_euler = start_rotation
 
 
 # ── Modal operation helpers ──────────────────────────────────────────────────
