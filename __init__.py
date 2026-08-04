@@ -528,7 +528,7 @@ def alternate_orient_label(context):
 
 def get_cursor_quaternion(cursor):
     """
-    Read the cursor's current rotation as a quaternion,
+    Read the cursor's current rotation as a quaternion
     regardless of its current rotation mode.
     """
     mode = cursor.rotation_mode
