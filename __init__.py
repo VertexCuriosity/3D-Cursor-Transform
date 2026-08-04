@@ -688,18 +688,17 @@ def switch_native_rotate_to_translate(context, axis=None):
         release_confirm=False,
     )
 
+
 # ── Status bar helpers ───────────────────────────────────────────────────────
 
-def _draw_status_rotate_common(header, _context, r_label, show_constraint_tools=True):
-    """
-    Draw the shared rotation status-bar hint row.
-
-    The constrained-axis and free-rotation modes share most shortcuts, so this
-    helper centralizes the common status-bar layout and only varies the entries
-    that differ between modes.
-    """
-    layout = header.layout
-    row = layout.row(align=True)
+def _draw_status_rotate_common(
+    header,
+    context,
+    rotation_label,
+    show_constraint_tools=True,
+):
+    """Draw the shared rotation shortcuts in the status bar."""
+    row = header.layout.row(align=True)
 
     # Confirm
     row.label(text="", icon='MOUSE_LMB')
@@ -715,10 +714,12 @@ def _draw_status_rotate_common(header, _context, r_label, show_constraint_tools=
 
     row.separator()
 
-    # Only show constraint-related tools in axis rotation mode
     if show_constraint_tools:
-        wm = _context.window_manager
-        has_constraint = wm.cursortransform_active_rotate_axis in {"X", "Y", "Z"}
+        window_manager = context.window_manager
+        has_constraint = (
+            window_manager.cursortransform_active_rotate_axis
+            in {"X", "Y", "Z"}
+        )
 
         # Axis constraints
         row.label(text="", icon='EVENT_X')
@@ -728,16 +729,16 @@ def _draw_status_rotate_common(header, _context, r_label, show_constraint_tools=
 
         row.separator()
 
-        # Clear constraints, only while constrained
+        # Clear constraints
         if has_constraint:
             row.label(text="", icon='EVENT_C')
             row.label(text="Clear Constraints")
 
             row.separator()
 
-        # Automatic constraints
+        # Automatic constraint
         row.label(text="", icon='MOUSE_MMB')
-        row.label(text="Automatic Constraints")
+        row.label(text="Automatic Constraint")
 
         row.separator()
 
@@ -753,9 +754,9 @@ def _draw_status_rotate_common(header, _context, r_label, show_constraint_tools=
 
     row.separator()
 
-    # Rotation mode switch
+    # Rotation mode
     row.label(text="", icon='EVENT_R')
-    row.label(text=r_label)
+    row.label(text=rotation_label)
 
     row.separator()
 
@@ -769,7 +770,7 @@ def draw_status_rotate_axis(header, context):
         header,
         context,
         "Trackball",
-        show_constraint_tools=True
+        show_constraint_tools=True,
     )
 
 
@@ -778,21 +779,18 @@ def draw_status_rotate_free(header, context):
         header,
         context,
         "Rotate",
-        show_constraint_tools=False
+        show_constraint_tools=False,
     )
 
 
 def draw_status_translate(header, context):
-    """
-    Draw the translation status-bar hint row.
+    """Draw the translation shortcuts in the status bar."""
+    row = header.layout.row(align=True)
 
-    Shows Clear Constraints only when an axis or plane constraint is active.
-    """
-    layout = header.layout
-    row = layout.row(align=True)
-
-    wm = context.window_manager
-    has_constraint = wm.cursortransform_active_translate_axis != ""
+    window_manager = context.window_manager
+    has_constraint = (
+        window_manager.cursortransform_active_translate_axis != ""
+    )
 
     # Confirm
     row.label(text="", icon='MOUSE_LMB')
@@ -825,7 +823,7 @@ def draw_status_translate(header, context):
 
     row.separator()
 
-    # Clear constraints, only while constrained
+    # Clear constraints
     if has_constraint:
         row.label(text="", icon='EVENT_C')
         row.label(text="Clear Constraints")
