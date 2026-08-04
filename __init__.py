@@ -954,141 +954,160 @@ def plane_view_alpha(
 
 # ── 2D overlay geometry and drawing ──────────────────────────────────────────
 
-def _build_sector_fan_vertices(a0, a1, steps):
-    """
-    Build triangle-fan vertices for a filled circular sector in the local XY plane.
-    """
-    verts = []
+def _build_sector_fan_vertices(start_angle, end_angle, steps):
+    """Build triangle vertices for a filled circular sector."""
+    vertices = []
     center = (0.0, 0.0, 0.0)
-    prev = None
+    previous_point = None
 
-    for i in range(steps + 1):
-        t = i / steps
-        a = a0 + (a1 - a0) * t
-        p = (math.cos(a), math.sin(a), 0.0)
+    for index in range(steps + 1):
+        factor = index / steps
+        angle = start_angle + (end_angle - start_angle) * factor
+        point = (math.cos(angle), math.sin(angle), 0.0)
 
-        if prev is not None:
-            verts.extend((center, prev, p))
-        prev = p
+        if previous_point is not None:
+            vertices.extend((center, previous_point, point))
 
-    return verts
+        previous_point = point
+
+    return vertices
 
 
 def _build_radius_quad_vertices(angle, width):
-    """
-    Build triangle vertices for a thin quad that represents a sector radius line
-    in the local XY plane.
-    """
+    """Build triangle vertices for a thin sector-radius marker."""
     half_width = width * 0.01
 
-    direction = Vector((math.cos(angle), math.sin(angle), 0.0))
-    normal = Vector((-direction.y, direction.x, 0.0)) * half_width
+    direction = Vector((
+        math.cos(angle),
+        math.sin(angle),
+        0.0,
+    ))
+    normal = Vector((
+        -direction.y,
+        direction.x,
+        0.0,
+    )) * half_width
 
-    p0 = Vector((0.0, 0.0, 0.0)) - normal
-    p1 = Vector((0.0, 0.0, 0.0)) + normal
-    p2 = direction + normal
-    p3 = direction - normal
+    start_left = Vector((0.0, 0.0, 0.0)) - normal
+    start_right = Vector((0.0, 0.0, 0.0)) + normal
+    end_right = direction + normal
+    end_left = direction - normal
 
     return [
-        tuple(p0), tuple(p1), tuple(p2),
-        tuple(p0), tuple(p2), tuple(p3),
+        tuple(start_left),
+        tuple(start_right),
+        tuple(end_right),
+        tuple(start_left),
+        tuple(end_right),
+        tuple(end_left),
     ]
 
 
 def _build_circle_fan_vertices(radius, segments):
-    """
-    Build triangle-fan vertices for a filled circle in the local XY plane.
-    """
-    verts = []
+    """Build triangle vertices for a filled circle."""
+    vertices = []
     center = (0.0, 0.0, 0.0)
 
-    for i in range(segments):
-        a0 = (i / segments) * math.tau
-        a1 = ((i + 1) / segments) * math.tau
+    for index in range(segments):
+        start_angle = (index / segments) * math.tau
+        end_angle = ((index + 1) / segments) * math.tau
 
-        p0 = (math.cos(a0) * radius, math.sin(a0) * radius, 0.0)
-        p1 = (math.cos(a1) * radius, math.sin(a1) * radius, 0.0)
+        start_point = (
+            math.cos(start_angle) * radius,
+            math.sin(start_angle) * radius,
+            0.0,
+        )
+        end_point = (
+            math.cos(end_angle) * radius,
+            math.sin(end_angle) * radius,
+            0.0,
+        )
 
-        verts.extend((center, p0, p1))
+        vertices.extend((center, start_point, end_point))
 
-    return verts
+    return vertices
 
 
-def _draw_dashed_line_2d(start, end, color, dash_len, gap_len, line_width):
-    """
-    Draw an antialiased dashed line in screen space from `start` to `end`.
-
-    Each dash is rendered as a short solid line through POLYLINE_UNIFORM_COLOR,
-    Blender's built-in antialiased line shader. Dash and gap lengths and the
-    line width are scaled by preferences.system.pixel_size so that on a
-    high-DPI display the dashes don't look thinner / smaller than on a
-    standard display. This matches the per-pixel coverage approach Blender's
-    own gizmo lines use, eliminating the staircase aliasing the previous
-    UNIFORM_COLOR + stitched-segments implementation had.
-    """
+def _draw_dashed_line_2d(
+    start,
+    end,
+    color,
+    dash_length,
+    gap_length,
+    line_width,
+):
+    """Draw an antialiased dashed line in screen space."""
     if start is None or end is None:
         return
 
-    vec = end - start
-    length = vec.length
-    if length <= 1e-6:
+    line_vector = end - start
+    line_length = line_vector.length
+
+    if line_length <= 1e-6:
         return
 
-    # Scale screen-space lengths and widths by pixel_size for DPI-independence.
-    # See ROTATE_TICK_WIDTH_PX / pixel_size discussion in the tick gizmo —
-    # same multiplier, same reason. context retrieval here is cheap; the
-    # alternative would be threading context through every caller.
     pixel_size = bpy.context.preferences.system.pixel_size
-    dash_px = dash_len * pixel_size
-    gap_px = gap_len * pixel_size
-    width_px = line_width * pixel_size
+    dash_pixels = dash_length * pixel_size
+    gap_pixels = gap_length * pixel_size
+    width_pixels = line_width * pixel_size
 
-    direction = vec.normalized()
-    step = dash_px + gap_px
+    step = dash_pixels + gap_pixels
+
     if step <= 1e-6:
         return
 
-    # Build each dash as a pair of points. Drawing the dash sequence from the
-    # mouse end backward toward the center means partial dashes (when the
-    # line length isn't an exact multiple of the pattern) appear at the
-    # center end, where the rotation pivot covers them anyway.
+    direction = line_vector.normalized()
     segments = []
-    pos = 0.0
-    while pos < length:
-        seg_end = end - direction * pos
-        seg_start = end - direction * min(pos + dash_px, length)
-        segments.extend((seg_start, seg_end))
-        pos += step
+    position = 0.0
+
+    # Build the pattern backward so any partial dash ends near the pivot.
+    while position < line_length:
+        segment_end = end - direction * position
+        segment_start = end - direction * min(
+            position + dash_pixels,
+            line_length,
+        )
+
+        segments.extend((segment_start, segment_end))
+        position += step
 
     if not segments:
         return
 
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'LINES', {"pos": segments})
+    batch = batch_for_shader(
+        shader,
+        'LINES',
+        {"pos": segments},
+    )
 
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-    shader.uniform_float("lineWidth", width_px)
+    shader.uniform_float(
+        "viewportSize",
+        gpu.state.viewport_get()[2:],
+    )
+    shader.uniform_float("lineWidth", width_pixels)
     shader.uniform_float("color", color)
     batch.draw(shader)
 
     gpu.state.blend_set('NONE')
 
 
-def _draw_translate_axis_line_op(op):
-    """Draw active translate constraint axis line(s) during custom G modal."""
+def _draw_translate_axis_line_op(operator):
+    """Draw translation constraint lines during the custom modal."""
     context = bpy.context
 
-    if op._mmb_held:
+    if operator._mmb_held:
         axes_to_draw = ("X", "Y", "Z")
-    elif op._axis in {"X", "Y", "Z"}:
-        axes_to_draw = (op._axis,)
-    elif op._plane_exclude_axis in {"X", "Y", "Z"}:
+    elif operator._axis in {"X", "Y", "Z"}:
+        axes_to_draw = (operator._axis,)
+    elif operator._plane_exclude_axis in {"X", "Y", "Z"}:
         axes_to_draw = tuple(
-            axis for axis in ("X", "Y", "Z")
-            if axis != op._plane_exclude_axis
+            axis
+            for axis in ("X", "Y", "Z")
+            if axis != operator._plane_exclude_axis
         )
     else:
         return
@@ -1096,17 +1115,20 @@ def _draw_translate_axis_line_op(op):
     center_2d = view3d_utils.location_3d_to_region_2d(
         context.region,
         context.region_data,
-        op._start_loc,
+        operator._start_loc,
     )
+
     if center_2d is None:
         return
 
-    half_length_px = float(max(context.region.width, context.region.height) * 2.0)
+    half_length_pixels = float(
+        max(context.region.width, context.region.height) * 2.0
+    )
 
     axis_colors = get_theme_gizmo_colors(context)
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
-    line_width_scaled = (
+    scaled_line_width = (
         ROTATE_CONSTRAINT_LINE_WIDTH
         * context.preferences.system.pixel_size
     )
@@ -1114,40 +1136,63 @@ def _draw_translate_axis_line_op(op):
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-    shader.uniform_float("lineWidth", line_width_scaled)
+    shader.uniform_float(
+        "viewportSize",
+        gpu.state.viewport_get()[2:],
+    )
+    shader.uniform_float("lineWidth", scaled_line_width)
 
     for axis in axes_to_draw:
-        idx = AXIS_INDEX[axis]
-        axis_vec = op._get_active_orient().col[idx].to_3d().normalized()
-
-        dir_2d = _project_axis_dir_2d(
-            context,
-            op._start_loc,
-            axis_vec,
+        axis_index = AXIS_INDEX[axis]
+        axis_vector = (
+            operator._get_active_orient()
+            .col[axis_index]
+            .to_3d()
+            .normalized()
         )
-        if dir_2d is None:
+
+        direction_2d = _project_axis_dir_2d(
+            context,
+            operator._start_loc,
+            axis_vector,
+        )
+
+        if direction_2d is None:
             continue
 
-        axis_rgb = axis_highlight_color(axis_colors[axis])
+        axis_color = axis_highlight_color(axis_colors[axis])
 
-        if op._mmb_held:
-            alpha = 1.0 if axis == op._axis else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
+        if operator._mmb_held:
+            alpha = (
+                1.0
+                if axis == operator._axis
+                else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
+            )
         else:
             alpha = 1.0
 
-        color = (axis_rgb[0], axis_rgb[1], axis_rgb[2], alpha)
+        color = (
+            axis_color[0],
+            axis_color[1],
+            axis_color[2],
+            alpha,
+        )
 
-        p0 = Vector((
-            center_2d.x - dir_2d.x * half_length_px,
-            center_2d.y - dir_2d.y * half_length_px,
+        line_start = Vector((
+            center_2d.x - direction_2d.x * half_length_pixels,
+            center_2d.y - direction_2d.y * half_length_pixels,
         ))
-        p1 = Vector((
-            center_2d.x + dir_2d.x * half_length_px,
-            center_2d.y + dir_2d.y * half_length_px,
+        line_end = Vector((
+            center_2d.x + direction_2d.x * half_length_pixels,
+            center_2d.y + direction_2d.y * half_length_pixels,
         ))
 
-        batch = batch_for_shader(shader, 'LINES', {"pos": [p0, p1]})
+        batch = batch_for_shader(
+            shader,
+            'LINES',
+            {"pos": [line_start, line_end]},
+        )
+
         shader.uniform_float("color", color)
         batch.draw(shader)
 
