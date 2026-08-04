@@ -523,6 +523,7 @@ def alternate_orient_label(context):
 
     return "Global"
 
+
 # ── Cursor rotation helpers ──────────────────────────────────────────────────
 
 def get_cursor_quaternion(cursor):
@@ -863,10 +864,9 @@ def draw_status_translate(header, context):
 # ── Gizmo appearance helpers ─────────────────────────────────────────────────
 
 def get_theme_gizmo_colors(context):
-    """
-    Return the current theme colors used for the X, Y, Z, and view-aligned gizmos.
-    """
+    """Return the theme colors used by the transform gizmos."""
     theme = context.preferences.themes[0].user_interface
+
     return {
         "X": tuple(theme.axis_x)[:3],
         "Y": tuple(theme.axis_y)[:3],
@@ -876,73 +876,77 @@ def get_theme_gizmo_colors(context):
 
 
 def axis_highlight_color(rgb):
-    """
-    Return a brighter highlight color by blending an RGB color toward white.
+    """Brighten an RGB color by blending it toward white."""
+    factor = 0.35
 
-    This avoids HSV-based brightening issues when the source color already has
-    maximum value.
-    """
-    factor = 0.35  # 0.0 = no change, 1.0 = pure white
+    red = rgb[0] + (1.0 - rgb[0]) * factor
+    green = rgb[1] + (1.0 - rgb[1]) * factor
+    blue = rgb[2] + (1.0 - rgb[2]) * factor
 
-    r = rgb[0] + (1.0 - rgb[0]) * factor
-    g = rgb[1] + (1.0 - rgb[1]) * factor
-    b = rgb[2] + (1.0 - rgb[2]) * factor
-
-    return (r, g, b)
+    return (red, green, blue)
 
 
-def smoothstep(edge0, edge1, x):
-    if edge0 == edge1:
+def smoothstep(edge_start, edge_end, value):
+    """Return a smooth interpolation between two edge values."""
+    if edge_start == edge_end:
         return 0.0
-    t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
-    return t * t * (3.0 - 2.0 * t)
+
+    factor = max(
+        0.0,
+        min(
+            1.0,
+            (value - edge_start) / (edge_end - edge_start),
+        ),
+    )
+
+    return factor * factor * (3.0 - 2.0 * factor)
 
 
-def axis_view_alpha(context, axis_vec, min_alpha=0, fade_start=0.88, fade_end=0.98):
-    """
-    Fade an axis when it points toward/away from the camera.
+def axis_view_alpha(
+    context,
+    axis_vector,
+    min_alpha=0.0,
+    fade_start=0.88,
+    fade_end=0.98,
+):
+    """Fade an axis as it becomes aligned with the view direction."""
+    region_data = context.region_data
 
-    axis_vec: world-space axis direction
-    min_alpha: lowest alpha when the axis is almost view-aligned
-    fade_start: start fading when alignment exceeds this value
-    fade_end: fully faded by this value
-    """
-    rd = context.region_data
-    if rd is None:
+    if region_data is None:
         return 1.0
 
-    # World-space view direction
-    view_dir = (rd.view_rotation @ Vector((0.0, 0.0, -1.0))).normalized()
-    axis_vec = axis_vec.normalized()
+    view_direction = (
+        region_data.view_rotation
+        @ Vector((0.0, 0.0, -1.0))
+    ).normalized()
 
-    # 0 = perpendicular to view, 1 = pointing straight at camera
-    alignment = abs(axis_vec.dot(view_dir))
+    axis_vector = axis_vector.normalized()
+    alignment = abs(axis_vector.dot(view_direction))
 
-    # alignment below fade_start => full alpha
-    # alignment near fade_end => min_alpha
     fade = smoothstep(fade_start, fade_end, alignment)
     return (1.0 - fade) + (min_alpha * fade)
 
 
-def plane_view_alpha(context, plane_normal_vec, min_alpha=0.0, fade_start=0.16, fade_end=0.26):
-    """
-    Fade a plane handle when the plane becomes edge-on to the camera.
+def plane_view_alpha(
+    context,
+    plane_normal,
+    min_alpha=0.0,
+    fade_start=0.16,
+    fade_end=0.26,
+):
+    """Fade a plane handle as it becomes edge-on to the view."""
+    region_data = context.region_data
 
-    plane_normal_vec: world-space normal of the plane
-    min_alpha: lowest alpha when the plane is edge-on
-    fade_start: begin fading once alignment drops near this value
-    fade_end: fully visible by this value
-    """
-    rd = context.region_data
-    if rd is None:
+    if region_data is None:
         return 1.0
 
-    # World-space view direction
-    view_dir = (rd.view_rotation @ Vector((0.0, 0.0, -1.0))).normalized()
-    plane_normal_vec = plane_normal_vec.normalized()
+    view_direction = (
+        region_data.view_rotation
+        @ Vector((0.0, 0.0, -1.0))
+    ).normalized()
 
-    # 0 = plane edge-on, 1 = plane facing camera
-    alignment = abs(plane_normal_vec.dot(view_dir))
+    plane_normal = plane_normal.normalized()
+    alignment = abs(plane_normal.dot(view_direction))
 
     fade = smoothstep(fade_start, fade_end, alignment)
     return min_alpha + ((1.0 - min_alpha) * fade)
