@@ -2501,12 +2501,9 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Translation and Wrapper Operators
-# ─────────────────────────────────────────────────────────────────────────────
-
 class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
-    """Custom keyboard translate modal for the 3D Cursor."""
+    """Move the 3D Cursor using a custom keyboard translation modal."""
+
     bl_idname = "cursortransform.translate_modal"
     bl_label = "Cursor Translate Modal"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
@@ -2514,6 +2511,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     release_confirm: bpy.props.BoolProperty(default=False)
 
     def invoke(self, context, event):
+        """Initialize the custom translation modal state."""
         cursor = context.scene.cursor
 
         if context.scene.tool_settings.use_snap:
@@ -2523,56 +2521,83 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             )
             return {'FINISHED'}
 
-        self._start_loc = cursor.location.copy()
+        self._initial_loc = cursor.location.copy()
+        self._start_loc = self._initial_loc.copy()
         self._start_mouse = None
         self._waiting_for_first_mousemove = True
 
         self._axis = ""
         self._plane_exclude_axis = ""
         self._cycle_state = 0
+        self._using_alternate_orient = False
+
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
+
         self._precision_active = False
         self._precision_start_mouse = None
         self._precision_start_loc = None
+
         self._start_orient = build_orient_matrix(context).copy()
-        self._start_orient_alternate = build_alternate_orient_matrix(context).copy()
-        self._using_alternate_orient = False
-        wm = context.window_manager
-        wm.cursortransform_active_translate_axis = ""
+        self._start_orient_alternate = (
+            build_alternate_orient_matrix(context).copy()
+        )
+
+        window_manager = context.window_manager
+        window_manager.cursortransform_active_translate_axis = ""
 
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
-        _TRANSLATE_GHOST_START_LOC = self._start_loc.copy()
+
+        _TRANSLATE_GHOST_START_LOC = self._initial_loc.copy()
         _TRANSLATE_GHOST_START_ORIENT = None
 
-        self._axis_line_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _draw_translate_axis_line_op, (self,), 'WINDOW', 'POST_PIXEL'
+        self._axis_line_handler = (
+            bpy.types.SpaceView3D.draw_handler_add(
+                _draw_translate_axis_line_op,
+                (self,),
+                'WINDOW',
+                'POST_PIXEL',
+            )
         )
 
         context.window.cursor_modal_set('SCROLL_XY')
         context.workspace.status_text_set(draw_status_translate)
-        wm.modal_handler_add(self)
+        window_manager.modal_handler_add(self)
+
         return {'RUNNING_MODAL'}
 
     def _remove_axis_line_handler(self):
-        if getattr(self, "_axis_line_handler", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(
-                self._axis_line_handler, 'WINDOW'
-            )
-            self._axis_line_handler = None
+        """Remove the translation-axis draw handler."""
+        if getattr(self, "_axis_line_handler", None) is None:
+            return
+
+        bpy.types.SpaceView3D.draw_handler_remove(
+            self._axis_line_handler,
+            'WINDOW',
+        )
+        self._axis_line_handler = None
 
     def _get_active_orient(self):
+        """Return the currently active translation orientation."""
         if self._using_alternate_orient:
             return self._start_orient_alternate
+
         return self._start_orient
 
     def _get_axis_vector(self):
+        """Return the active translation axis in world space."""
         if self._axis not in {"X", "Y", "Z"}:
             return None
 
-        idx = AXIS_INDEX[self._axis]
-        return self._get_active_orient().col[idx].to_3d().normalized()
+        axis_index = AXIS_INDEX[self._axis]
+
+        return (
+            self._get_active_orient()
+            .col[axis_index]
+            .to_3d()
+            .normalized()
+        )
 
     def _format_distance(self, value):
         return f"{value:.4f} m"
@@ -2580,6 +2605,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     def _get_orient_label(self, context):
         if self._using_alternate_orient:
             return alternate_orient_label(context).lower()
+
         return get_orient_type(context).lower()
 
     def _update_header_text(self, context):
@@ -2587,39 +2613,50 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             orient_label = self._get_orient_label(context)
+            orientation = self._get_active_orient()
 
-            axes = [
-                axis for axis in ("X", "Y", "Z")
+            plane_axes = [
+                axis
+                for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             ]
 
-            orient = self._get_active_orient()
+            first_axis = plane_axes[0]
+            second_axis = plane_axes[1]
 
-            axis_a = axes[0]
-            axis_b = axes[1]
+            first_vector = (
+                orientation
+                .col[AXIS_INDEX[first_axis]]
+                .to_3d()
+                .normalized()
+            )
+            second_vector = (
+                orientation
+                .col[AXIS_INDEX[second_axis]]
+                .to_3d()
+                .normalized()
+            )
 
-            vec_a = orient.col[AXIS_INDEX[axis_a]].to_3d().normalized()
-            vec_b = orient.col[AXIS_INDEX[axis_b]].to_3d().normalized()
-
-            amount_a = delta.dot(vec_a)
-            amount_b = delta.dot(vec_b)
-
-            total = delta.length
+            first_amount = delta.dot(first_vector)
+            second_amount = delta.dot(second_vector)
+            total_distance = delta.length
 
             context.area.header_text_set(
-                f"D:  {self._format_distance(amount_a)}   "
-                f"D: {self._format_distance(amount_b)} "
-                f"({self._format_distance(total)}) "
-                f"locking {orient_label} {self._plane_exclude_axis}"
+                f"D:  {self._format_distance(first_amount)}   "
+                f"D: {self._format_distance(second_amount)} "
+                f"({self._format_distance(total_distance)}) "
+                f"locking {orient_label} "
+                f"{self._plane_exclude_axis}"
             )
             return
 
         if self._axis in {"X", "Y", "Z"}:
-            axis_vec = self._get_axis_vector()
-            if axis_vec is None:
+            axis_vector = self._get_axis_vector()
+
+            if axis_vector is None:
                 return
 
-            amount = delta.dot(axis_vec)
+            amount = delta.dot(axis_vector)
             orient_label = self._get_orient_label(context)
 
             context.area.header_text_set(
@@ -2629,33 +2666,31 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             )
             return
 
-        dx = delta.x
-        dy = delta.y
-        dz = delta.z
-        total = delta.length
-
         context.area.header_text_set(
-            f"Dx: {self._format_distance(dx)}   "
-            f"Dy:  {self._format_distance(dy)}   "
-            f"Dz: {self._format_distance(dz)} "
-            f"({self._format_distance(total)})"
+            f"Dx: {self._format_distance(delta.x)}   "
+            f"Dy:  {self._format_distance(delta.y)}   "
+            f"Dz: {self._format_distance(delta.z)} "
+            f"({self._format_distance(delta.length)})"
         )
 
     def _update_status_bar(self, context):
         if context.workspace is not None:
             context.workspace.status_text_set(draw_status_translate)
-            
+
     def _ensure_start_mouse(self, event):
         """
-        Make sure keyboard constraint actions have a valid mouse baseline.
-
-        This prevents errors when the user switches from rotation to translation
-        and immediately presses X/Y/Z before the first MOUSEMOVE event.
+        Establish a mouse baseline when a constraint is selected before
+        the first mouse-move event.
         """
-        if self._start_mouse is None:
-            self._start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-            self._waiting_for_first_mousemove = False
-            
+        if self._start_mouse is not None:
+            return
+
+        self._start_mouse = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
+        self._waiting_for_first_mousemove = False
+
     def _set_axis_cycle(self, context, event, axis):
         global _TRANSLATE_GHOST_START_ORIENT
 
@@ -2665,44 +2700,48 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             self._axis = axis
             self._cycle_state = 1
             self._using_alternate_orient = False
-
         elif self._cycle_state == 1:
             self._cycle_state = 2
             self._using_alternate_orient = True
-
         else:
             self._axis = ""
             self._cycle_state = 0
             self._using_alternate_orient = False
 
-        context.window_manager.cursortransform_active_translate_axis = self._axis
+        context.window_manager.cursortransform_active_translate_axis = (
+            self._axis
+        )
 
         if self._axis in {"X", "Y", "Z"}:
-            _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+            _TRANSLATE_GHOST_START_ORIENT = (
+                self._get_active_orient().copy()
+            )
         else:
             _TRANSLATE_GHOST_START_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        context.scene.cursor.location = self._mouse_to_location(
+            context,
+            event,
+        )
+
         self._update_header_text(context)
         self._update_status_bar(context)
         tag_viewport_redraw(context)
 
-    def _set_plane_cycle(self, context, event, exclude_axis):
+    def _set_plane_cycle(self, context, event, excluded_axis):
         global _TRANSLATE_GHOST_START_ORIENT
 
         self._ensure_start_mouse(event)
 
-        if self._plane_exclude_axis != exclude_axis:
+        if self._plane_exclude_axis != excluded_axis:
             self._axis = ""
-            self._plane_exclude_axis = exclude_axis
+            self._plane_exclude_axis = excluded_axis
             self._cycle_state = 1
             self._using_alternate_orient = False
-
         elif self._cycle_state == 1:
             self._axis = ""
             self._cycle_state = 2
             self._using_alternate_orient = True
-
         else:
             self._axis = ""
             self._plane_exclude_axis = ""
@@ -2711,25 +2750,36 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane = "".join(
-                axis for axis in ("X", "Y", "Z")
+                axis
+                for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             )
-            context.window_manager.cursortransform_active_translate_axis = plane
-            _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+
+            context.window_manager.cursortransform_active_translate_axis = (
+                plane
+            )
+            _TRANSLATE_GHOST_START_ORIENT = (
+                self._get_active_orient().copy()
+            )
         else:
             context.window_manager.cursortransform_active_translate_axis = ""
             _TRANSLATE_GHOST_START_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        context.scene.cursor.location = self._mouse_to_location(
+            context,
+            event,
+        )
+
         self._update_header_text(context)
         self._update_status_bar(context)
         tag_viewport_redraw(context)
 
     def _clear_constraints(self, context, event):
+        """Clear the active axis or plane constraint."""
         global _TRANSLATE_GHOST_START_ORIENT
 
         self._ensure_start_mouse(event)
-        
+
         self._axis = ""
         self._plane_exclude_axis = ""
         self._cycle_state = 0
@@ -2738,14 +2788,22 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         context.window_manager.cursortransform_active_translate_axis = ""
         _TRANSLATE_GHOST_START_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        context.scene.cursor.location = self._mouse_to_location(
+            context,
+            event,
+        )
+
         self._update_header_text(context)
         self._update_status_bar(context)
         tag_viewport_redraw(context)
 
     def _switch_to_rotate(self, context):
-        # Capture current translate constraint before cleanup clears it.
-        axis = self._axis if self._axis in {"X", "Y", "Z"} else None
+        """Finish translation and start cursor rotation."""
+        axis = (
+            self._axis
+            if self._axis in {"X", "Y", "Z"}
+            else None
+        )
 
         self._finish(context)
 
@@ -2754,23 +2812,24 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
                 'INVOKE_DEFAULT',
                 axis=axis,
             )
-        else:
-            bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
+            return
+
+        bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
 
     def _handoff_to_native_translate(self, context):
-        """
-        Finish the custom translate modal and hand control to Blender's native
-        cursor translate operator.
-
-        This is used for Ctrl snapping. Once handed off, Blender owns the
-        transform until confirm/cancel.
-        """
-        axis = self._axis if self._axis in {"X", "Y", "Z"} else None
+        """Continue translation using Blender's native transform operator."""
+        axis = (
+            self._axis
+            if self._axis in {"X", "Y", "Z"}
+            else None
+        )
 
         plane = None
+
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane = "".join(
-                axis_name for axis_name in ("X", "Y", "Z")
+                axis_name
+                for axis_name in ("X", "Y", "Z")
                 if axis_name != self._plane_exclude_axis
             )
 
@@ -2798,21 +2857,29 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         )
 
     def _enter_mmb_pickup(self, context):
+        """Begin automatic axis selection with the middle mouse button."""
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
 
         for axis in ("X", "Y", "Z"):
-            idx = AXIS_INDEX[axis]
-            axis_vec = self._get_active_orient().col[idx].to_3d().normalized()
+            axis_index = AXIS_INDEX[axis]
+            axis_vector = (
+                self._get_active_orient()
+                .col[axis_index]
+                .to_3d()
+                .normalized()
+            )
+
             self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(
                 context,
                 self._start_loc,
-                axis_vec,
+                axis_vector,
             )
 
         tag_viewport_redraw(context)
 
     def _exit_mmb_pickup(self, context):
+        """End automatic axis selection."""
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
         tag_viewport_redraw(context)
@@ -2826,188 +2893,247 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._using_alternate_orient = False
 
         context.window_manager.cursortransform_active_translate_axis = axis
-        _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+        _TRANSLATE_GHOST_START_ORIENT = (
+            self._get_active_orient().copy()
+        )
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        context.scene.cursor.location = self._mouse_to_location(
+            context,
+            event,
+        )
+
         self._update_header_text(context)
         self._update_status_bar(context)
         tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
-        mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
+        mouse_2d = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
 
-        threshold_px = (
+        threshold_pixels = (
             ROTATE_MMB_PROXIMITY_THRESHOLD_PX
             * context.preferences.system.pixel_size
         )
 
+        center_2d = view3d_utils.location_3d_to_region_2d(
+            context.region,
+            context.region_data,
+            self._start_loc,
+        )
+
         new_axis = _closest_axis_to_mouse(
             mouse_2d,
-            view3d_utils.location_3d_to_region_2d(
-                context.region,
-                context.region_data,
-                self._start_loc,
-            ),
+            center_2d,
             self._mmb_axis_dirs_2d,
-            threshold_px,
+            threshold_pixels,
         )
 
         if new_axis is not None and new_axis != self._axis:
-            self._set_axis_from_mmb(context, event, new_axis)
+            self._set_axis_from_mmb(
+                context,
+                event,
+                new_axis,
+            )
 
     def _mouse_to_free_location(self, context, event):
         region = context.region
-        rv3d = context.region_data
-
-        base_loc = self._input_start_loc()
+        region_data = context.region_data
+        base_location = self._input_start_loc()
 
         start_2d = view3d_utils.location_3d_to_region_2d(
             region,
-            rv3d,
-            base_loc,
+            region_data,
+            base_location,
         )
-        if start_2d is None:
-            return base_loc.copy()
 
-        new_2d = start_2d + self._mouse_delta_2d(event)
+        if start_2d is None:
+            return base_location.copy()
+
+        target_2d = start_2d + self._mouse_delta_2d(event)
 
         ray_origin = view3d_utils.region_2d_to_origin_3d(
             region,
-            rv3d,
-            new_2d,
+            region_data,
+            target_2d,
         )
-        ray_dir = view3d_utils.region_2d_to_vector_3d(
+        ray_direction = view3d_utils.region_2d_to_vector_3d(
             region,
-            rv3d,
-            new_2d,
+            region_data,
+            target_2d,
         )
 
-        view_normal = rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))
-        denom = ray_dir.dot(view_normal)
+        view_normal = (
+            region_data.view_rotation
+            @ Vector((0.0, 0.0, -1.0))
+        )
+        denominator = ray_direction.dot(view_normal)
 
-        if abs(denom) < 1e-8:
-            return base_loc.copy()
+        if abs(denominator) < 1e-8:
+            return base_location.copy()
 
-        factor = (base_loc - ray_origin).dot(view_normal) / denom
-        return ray_origin + ray_dir * factor
+        distance = (
+            base_location - ray_origin
+        ).dot(view_normal) / denominator
+
+        return ray_origin + ray_direction * distance
 
     def _mouse_delta_2d(self, event):
-        mouse_delta = Vector((event.mouse_region_x, event.mouse_region_y)) - self._input_start_mouse()
+        current_mouse = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
+        mouse_delta = current_mouse - self._input_start_mouse()
 
         if self._precision_active:
             mouse_delta *= 0.1
 
         return mouse_delta
 
-    def _project_world_vector_to_2d(self, context, world_vec):
-        base_loc = self._input_start_loc()
+    def _project_world_vector_to_2d(self, context, world_vector):
+        base_location = self._input_start_loc()
 
         start_2d = view3d_utils.location_3d_to_region_2d(
             context.region,
             context.region_data,
-            base_loc,
+            base_location,
         )
-
         end_2d = view3d_utils.location_3d_to_region_2d(
             context.region,
             context.region_data,
-            base_loc + world_vec,
+            base_location + world_vector,
         )
 
         if start_2d is None or end_2d is None:
             return None
 
-        projected = end_2d - start_2d
-        if projected.length <= 1e-6:
+        projected_vector = end_2d - start_2d
+
+        if projected_vector.length <= 1e-6:
             return None
 
-        return projected
+        return projected_vector
 
     def _update_precision_state(self, context, event):
-        mouse_now = Vector((event.mouse_region_x, event.mouse_region_y))
+        current_mouse = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
 
-        # Enter precision mode:
-        # Anchor precision movement from the current cursor location and mouse.
         if event.shift and not self._precision_active:
             self._precision_active = True
-            self._precision_start_mouse = mouse_now
-            self._precision_start_loc = context.scene.cursor.location.copy()
+            self._precision_start_mouse = current_mouse
+            self._precision_start_loc = (
+                context.scene.cursor.location.copy()
+            )
             return
 
-        # Exit precision mode:
-        # Promote the current precise cursor location to the new normal baseline.
-        # This prevents the cursor from snapping back to the full-speed mouse position.
         if not event.shift and self._precision_active:
             self._precision_active = False
 
-            self._start_mouse = mouse_now
+            # Continue normal movement from the current precise position.
+            self._start_mouse = current_mouse
             self._start_loc = context.scene.cursor.location.copy()
 
             self._precision_start_mouse = None
             self._precision_start_loc = None
 
     def _input_start_mouse(self):
-        if self._precision_active and self._precision_start_mouse is not None:
+        if (
+            self._precision_active
+            and self._precision_start_mouse is not None
+        ):
             return self._precision_start_mouse
+
         return self._start_mouse
 
     def _input_start_loc(self):
-        if self._precision_active and self._precision_start_loc is not None:
+        if (
+            self._precision_active
+            and self._precision_start_loc is not None
+        ):
             return self._precision_start_loc
+
         return self._start_loc
 
     def _mouse_to_axis_location(self, context, event):
-        axis_vec = self._get_axis_vector()
-        if axis_vec is None:
+        axis_vector = self._get_axis_vector()
+
+        if axis_vector is None:
             return self._mouse_to_free_location(context, event)
 
-        axis_2d = self._project_world_vector_to_2d(context, axis_vec)
-        if axis_2d is None:
+        projected_axis = self._project_world_vector_to_2d(
+            context,
+            axis_vector,
+        )
+
+        if projected_axis is None:
             return self._input_start_loc().copy()
 
+        axis_direction_2d = projected_axis.normalized()
         mouse_delta = self._mouse_delta_2d(event)
 
-        axis_dir_2d = axis_2d.normalized()
+        amount = (
+            mouse_delta.dot(axis_direction_2d)
+            / projected_axis.length
+        )
 
-        # Convert screen movement along the projected axis back into world units.
-        # This avoids the foreshortening bug caused by projecting a free view-plane
-        # movement onto the 3D axis afterwards.
-        amount = mouse_delta.dot(axis_dir_2d) / axis_2d.length
-
-        return self._input_start_loc() + axis_vec * amount
+        return self._input_start_loc() + axis_vector * amount
 
     def _mouse_to_plane_location(self, context, event):
         if self._plane_exclude_axis not in {"X", "Y", "Z"}:
             return self._mouse_to_free_location(context, event)
 
         plane_axes = [
-            axis for axis in ("X", "Y", "Z")
+            axis
+            for axis in ("X", "Y", "Z")
             if axis != self._plane_exclude_axis
         ]
 
-        orient = self._get_active_orient()
+        orientation = self._get_active_orient()
 
-        vec_a = orient.col[AXIS_INDEX[plane_axes[0]]].to_3d().normalized()
-        vec_b = orient.col[AXIS_INDEX[plane_axes[1]]].to_3d().normalized()
-
-        basis_a_2d = self._project_world_vector_to_2d(context, vec_a)
-        basis_b_2d = self._project_world_vector_to_2d(context, vec_b)
-
-        if basis_a_2d is None or basis_b_2d is None:
-            return self._input_start_loc().copy()
-
-        solved = _solve_2d_basis(
-            self._mouse_delta_2d(event),
-            basis_a_2d,
-            basis_b_2d,
+        first_vector = (
+            orientation
+            .col[AXIS_INDEX[plane_axes[0]]]
+            .to_3d()
+            .normalized()
+        )
+        second_vector = (
+            orientation
+            .col[AXIS_INDEX[plane_axes[1]]]
+            .to_3d()
+            .normalized()
         )
 
-        if solved is None:
+        first_basis_2d = self._project_world_vector_to_2d(
+            context,
+            first_vector,
+        )
+        second_basis_2d = self._project_world_vector_to_2d(
+            context,
+            second_vector,
+        )
+
+        if first_basis_2d is None or second_basis_2d is None:
             return self._input_start_loc().copy()
 
-        amount_a, amount_b = solved
+        coefficients = _solve_2d_basis(
+            self._mouse_delta_2d(event),
+            first_basis_2d,
+            second_basis_2d,
+        )
 
-        return self._input_start_loc() + (vec_a * amount_a) + (vec_b * amount_b)
+        if coefficients is None:
+            return self._input_start_loc().copy()
+
+        first_amount, second_amount = coefficients
+
+        return (
+            self._input_start_loc()
+            + first_vector * first_amount
+            + second_vector * second_amount
+        )
 
     def _mouse_to_location(self, context, event):
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
@@ -3019,6 +3145,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return self._mouse_to_free_location(context, event)
 
     def _finish(self, context):
+        """Clear translation modal state and restore the viewport UI."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
@@ -3039,25 +3166,40 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def modal(self, context, event):
-
-        if event.value == 'PRESS' and event.type == 'C' and not event.is_repeat:
+        """Update cursor translation and handle modal input."""
+        if (
+            event.value == 'PRESS'
+            and event.type == 'C'
+            and not event.is_repeat
+        ):
             self._clear_constraints(context, event)
             return {'RUNNING_MODAL'}
 
-        if event.value == 'PRESS' and event.type == 'R' and not event.is_repeat:
+        if (
+            event.value == 'PRESS'
+            and event.type == 'R'
+            and not event.is_repeat
+        ):
             self._switch_to_rotate(context)
             return {'FINISHED'}
 
-        if event.value == 'PRESS' and event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}:
+        if (
+            event.value == 'PRESS'
+            and event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}
+        ):
             self._handoff_to_native_translate(context)
             return {'FINISHED'}
 
-        if event.value == 'PRESS' and event.type == 'TAB' and event.shift:
+        if (
+            event.value == 'PRESS'
+            and event.type == 'TAB'
+            and event.shift
+        ):
             context.scene.tool_settings.use_snap = True
             self._handoff_to_native_translate(context)
             return {'FINISHED'}
 
-        if event.type == 'MIDDLEMOUSE':               
+        if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
                 self._enter_mmb_pickup(context)
                 return {'RUNNING_MODAL'}
@@ -3065,28 +3207,49 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             if event.value == 'RELEASE' and self._mmb_held:
                 self._exit_mmb_pickup(context)
                 return {'RUNNING_MODAL'}
-        
-        if event.value == 'PRESS' and event.type in {'X', 'Y', 'Z'} and not event.is_repeat:
+
+        if (
+            event.value == 'PRESS'
+            and event.type in {'X', 'Y', 'Z'}
+            and not event.is_repeat
+        ):
             if event.shift:
-                self._set_plane_cycle(context, event, event.type)
+                self._set_plane_cycle(
+                    context,
+                    event,
+                    event.type,
+                )
             else:
                 self._plane_exclude_axis = ""
-                self._set_axis_cycle(context, event, event.type)
+                self._set_axis_cycle(
+                    context,
+                    event,
+                    event.type,
+                )
 
             return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             if self._waiting_for_first_mousemove:
                 self._waiting_for_first_mousemove = False
-                self._start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+                self._start_mouse = Vector((
+                    event.mouse_region_x,
+                    event.mouse_region_y,
+                ))
                 return {'RUNNING_MODAL'}
 
             self._update_precision_state(context, event)
 
             if self._mmb_held:
-                self._maybe_switch_axis_by_proximity(context, event)
+                self._maybe_switch_axis_by_proximity(
+                    context,
+                    event,
+                )
 
-            context.scene.cursor.location = self._mouse_to_location(context, event)
+            context.scene.cursor.location = self._mouse_to_location(
+                context,
+                event,
+            )
             self._update_header_text(context)
 
             tag_viewport_redraw(context)
@@ -3097,60 +3260,11 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            context.scene.cursor.location = self._start_loc
+            context.scene.cursor.location = self._initial_loc
             self._finish(context)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
-
-
-class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
-    """Move 3D cursor along a constrained axis."""
-    bl_idname  = "cursortransform.translate"
-    bl_label   = "Cursor Translate"
-    bl_options = {'INTERNAL'}
-
-    axis: bpy.props.StringProperty(default="Z")
-    release_confirm: bpy.props.BoolProperty(default=True)
-
-    @classmethod
-    def poll(cls, context):
-        # Both gizmo and keyboard-shortcut entry paths require the cursor
-        # tool to be the active workspace tool. Returning False from poll
-        # means the keymap entry no-ops, so Blender falls through to the
-        # default G/X/Y/Z handler (translate selected object). That gives
-        # us "tool-aware" shortcuts without registering a tool-scoped
-        # keymap, which is the documented stable approach.
-        return active_tool_is_cursor(context)
-
-    def invoke(self, context, event):
-        """
-        Launch Blender's native translate operator in axis-constrained cursor mode.
-        """
-        global _TRANSLATE_GHOST_START_LOC
-        global _TRANSLATE_GHOST_START_ORIENT
-
-        orient_matrix = build_orient_matrix(context)
-        orient_mx = orient_matrix.to_3x3()
-        orient_type = get_orient_type(context)
-
-        wm = context.window_manager
-        wm.cursortransform_active_translate_axis = self.axis
-
-        # Store the starting transform for ghost preview drawing during translation.
-        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
-        _TRANSLATE_GHOST_START_ORIENT = orient_matrix.copy()
-
-        bpy.ops.transform.translate(
-            'INVOKE_DEFAULT',
-            cursor_transform=True,
-            constraint_axis=AXIS_CONSTRAINT[self.axis],
-            orient_type=orient_type,
-            orient_matrix=orient_mx,
-            orient_matrix_type=orient_type,
-            release_confirm=self.release_confirm,
-        )
-        return {'FINISHED'}
 
 
 class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
