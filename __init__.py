@@ -2501,6 +2501,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Translation and Wrapper Operators
+# ─────────────────────────────────────────────────────────────────────────────
+
 class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     """Move the 3D Cursor using a custom keyboard translation modal."""
 
@@ -3265,6 +3269,53 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
+
+
+class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
+    """Move the 3D Cursor along a constrained axis."""
+
+    bl_idname = "cursortransform.translate"
+    bl_label = "Cursor Translate"
+    bl_options = {'INTERNAL'}
+
+    axis: bpy.props.StringProperty(default="Z")
+    release_confirm: bpy.props.BoolProperty(default=True)
+
+    @classmethod
+    def poll(cls, context):
+        """Run only while the 3D Cursor tool is active."""
+        return active_tool_is_cursor(context)
+
+    def invoke(self, context, _event):
+        """Start Blender's native cursor translation on one axis."""
+        global _TRANSLATE_GHOST_START_LOC
+        global _TRANSLATE_GHOST_START_ORIENT
+
+        orientation_matrix = build_orient_matrix(context)
+        orientation_type = get_orient_type(context)
+
+        context.window_manager.cursortransform_active_translate_axis = (
+            self.axis
+        )
+
+        _TRANSLATE_GHOST_START_LOC = (
+            context.scene.cursor.location.copy()
+        )
+        _TRANSLATE_GHOST_START_ORIENT = (
+            orientation_matrix.copy()
+        )
+
+        bpy.ops.transform.translate(
+            'INVOKE_DEFAULT',
+            cursor_transform=True,
+            constraint_axis=AXIS_CONSTRAINT[self.axis],
+            orient_type=orientation_type,
+            orient_matrix=orientation_matrix.to_3x3(),
+            orient_matrix_type=orientation_type,
+            release_confirm=self.release_confirm,
+        )
+
+        return {'FINISHED'}
 
 
 class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
