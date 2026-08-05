@@ -3401,7 +3401,8 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
 
 
 class CURSORTRANSFORM_OT_rotate_x(bpy.types.Operator):
-    """Launch X-axis cursor rotation."""
+    """Start 3D Cursor rotation around the X axis."""
+
     bl_idname = "cursortransform.rotate_x"
     bl_label = "Cursor Rotate X"
     bl_options = {'INTERNAL'}
@@ -3410,12 +3411,16 @@ class CURSORTRANSFORM_OT_rotate_x(bpy.types.Operator):
     def poll(cls, context):
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
-        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="X")
+    def invoke(self, context, _event):
+        return bpy.ops.cursortransform.rotate_modal(
+            'INVOKE_DEFAULT',
+            axis="X",
+        )
 
 
 class CURSORTRANSFORM_OT_rotate_y(bpy.types.Operator):
-    """Launch Y-axis cursor rotation."""
+    """Start 3D Cursor rotation around the Y axis."""
+
     bl_idname = "cursortransform.rotate_y"
     bl_label = "Cursor Rotate Y"
     bl_options = {'INTERNAL'}
@@ -3424,12 +3429,16 @@ class CURSORTRANSFORM_OT_rotate_y(bpy.types.Operator):
     def poll(cls, context):
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
-        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Y")
+    def invoke(self, context, _event):
+        return bpy.ops.cursortransform.rotate_modal(
+            'INVOKE_DEFAULT',
+            axis="Y",
+        )
 
 
 class CURSORTRANSFORM_OT_rotate_z(bpy.types.Operator):
-    """Launch Z-axis cursor rotation."""
+    """Start 3D Cursor rotation around the Z axis."""
+
     bl_idname = "cursortransform.rotate_z"
     bl_label = "Cursor Rotate Z"
     bl_options = {'INTERNAL'}
@@ -3438,12 +3447,16 @@ class CURSORTRANSFORM_OT_rotate_z(bpy.types.Operator):
     def poll(cls, context):
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
-        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Z")
+    def invoke(self, context, _event):
+        return bpy.ops.cursortransform.rotate_modal(
+            'INVOKE_DEFAULT',
+            axis="Z",
+        )
 
 
 class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
-    """Launch view-aligned cursor rotation."""
+    """Start view-aligned 3D Cursor rotation."""
+
     bl_idname = "cursortransform.rotate_view"
     bl_label = "Cursor Rotate View"
     bl_options = {'INTERNAL'}
@@ -3452,7 +3465,7 @@ class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
     def poll(cls, context):
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
+    def invoke(self, context, _event):
         return bpy.ops.cursortransform.rotate_modal(
             'INVOKE_DEFAULT',
             axis="VIEW",
