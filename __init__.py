@@ -3354,9 +3354,10 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
 
 
 class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
-    """Move 3D cursor along a constrained plane."""
-    bl_idname  = "cursortransform.translate_plane"
-    bl_label   = "Cursor Translate Plane"
+    """Move the 3D Cursor along a constrained plane."""
+
+    bl_idname = "cursortransform.translate_plane"
+    bl_label = "Cursor Translate Plane"
     bl_options = {'INTERNAL'}
 
     plane: bpy.props.StringProperty(default="XY")
@@ -3364,35 +3365,38 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        """Run only while the 3D Cursor tool is active."""
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
-        """
-        Launch Blender's native translate operator constrained to a plane.
-        """        
+    def invoke(self, context, _event):
+        """Start Blender's native cursor translation on a plane."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
-        orient_matrix = build_orient_matrix(context)
-        orient_mx = orient_matrix.to_3x3()
-        orient_type = get_orient_type(context)
+        orientation_matrix = build_orient_matrix(context)
+        orientation_type = get_orient_type(context)
 
-        wm = context.window_manager
-        wm.cursortransform_active_translate_axis = self.plane
+        context.window_manager.cursortransform_active_translate_axis = (
+            self.plane
+        )
 
-        # Store the starting transform for ghost preview drawing during translation.
-        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
-        _TRANSLATE_GHOST_START_ORIENT = orient_matrix.copy()
+        _TRANSLATE_GHOST_START_LOC = (
+            context.scene.cursor.location.copy()
+        )
+        _TRANSLATE_GHOST_START_ORIENT = (
+            orientation_matrix.copy()
+        )
 
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT',
             cursor_transform=True,
             constraint_axis=PLANE_CONSTRAINT[self.plane],
-            orient_type=orient_type,
-            orient_matrix=orient_mx,
-            orient_matrix_type=orient_type,
+            orient_type=orientation_type,
+            orient_matrix=orientation_matrix.to_3x3(),
+            orient_matrix_type=orientation_type,
             release_confirm=self.release_confirm,
         )
+
         return {'FINISHED'}
 
 
