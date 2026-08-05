@@ -1599,149 +1599,148 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
 
 class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     """Rotate the 3D Cursor around a frozen axis by dragging."""
-    bl_idname  = "cursortransform.rotate_modal"
-    bl_label   = "Cursor Rotate"
+
+    bl_idname = "cursortransform.rotate_modal"
+    bl_label = "Cursor Rotate"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     axis: bpy.props.StringProperty(default="Z")
 
     def invoke(self, context, event):
-        """
-        Initialize the constrained rotation modal state and create the projected
-        screen-space guide used during the drag.
-        """
+        """Initialize constrained cursor rotation."""
         cursor = context.scene.cursor
 
-        # Cache the cursor position so the modal drag starts from a stable state and
-        # can restore its guide origin on cancel.
         self._start_loc = cursor.matrix.translation.copy()
 
-        rot_state = cache_cursor_rotation_state(cursor)
-        self._rot_mode = rot_state["rot_mode"]
-        self._start_rot = rot_state["start_rot"]
-        self._start_quat = rot_state["start_quat"]
-        self._start_euler_compat = rot_state["start_euler_compat"]
+        rotation_state = cache_cursor_rotation_state(cursor)
+        self._rot_mode = rotation_state["rot_mode"]
+        self._start_rot = rotation_state["start_rot"]
+        self._start_quat = rotation_state["start_quat"]
+        self._start_euler_compat = rotation_state["start_euler_compat"]
 
-        # Freeze the gizmo orientation basis so the drag remains stable during the
-        # modal operation. Both the header orient and the alternate orient are
-        # captured here so the 3-state axis-key cycle (1st press = header,
-        # 2nd press = alternate, 3rd press = VIEW) can switch between them
-        # without re-reading the header at each press.
+        # Freeze the transform bases for the duration of the modal operation.
         self._start_orient = build_orient_matrix(context).copy()
-        self._start_orient_alternate = build_alternate_orient_matrix(context).copy()
+        self._start_orient_alternate = (
+            build_alternate_orient_matrix(context).copy()
+        )
         self._using_alternate_orient = False
-        self._start_view   = get_view_rot_matrix(context).copy()
+        self._start_view = get_view_rot_matrix(context).copy()
 
         global _ROTATE_ACTIVE_ORIENT
         global _ROTATE_ACTIVE_VIEW
+
         _ROTATE_ACTIVE_ORIENT = self._start_orient.copy()
         _ROTATE_ACTIVE_VIEW = self._start_view.copy()
 
-        # Store the initial guide center and mouse position in region space for the
-        # screen-space rotation guide.
         self._guide_center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region, context.region_data, self._start_loc
+            context.region,
+            context.region_data,
+            self._start_loc,
         )
-        self._guide_mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
+        self._guide_mouse_2d = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
         self._guide_start_mouse_2d = self._guide_mouse_2d.copy()
 
-        # Derive the projected guide radius from Blender's gizmo size preference and
-        # the active frozen ring orientation.
-        gizmo_pref = max(context.preferences.view.gizmo_size, 1)
+        gizmo_size = max(
+            context.preferences.view.gizmo_size,
+            1,
+        )
 
         if self.axis == "VIEW":
-            ring_m = self._start_view.copy()
-            pixel_radius = gizmo_pref * ROTATE_VIEW_RING_PIXEL_RADIUS
+            ring_matrix = self._start_view.copy()
+            pixel_radius = (
+                gizmo_size
+                * ROTATE_VIEW_RING_PIXEL_RADIUS
+            )
         else:
-            ring_m = self._get_active_orient() @ AXIS_ROT[self.axis]
-            pixel_radius = gizmo_pref * ROTATE_RING_PIXEL_RADIUS
+            ring_matrix = (
+                self._get_active_orient()
+                @ AXIS_ROT[self.axis]
+            )
+            pixel_radius = (
+                gizmo_size
+                * ROTATE_RING_PIXEL_RADIUS
+            )
 
-        self._guide_basis_x_2d = None
-        self._guide_basis_y_2d = None
-        self._guide_start_angle = 0.0
-        self._guide_total_angle = 0.0
-
-        self._guide_basis_x_2d, self._guide_basis_y_2d = _build_screen_space_ring_basis(
+        (
+            self._guide_basis_x_2d,
+            self._guide_basis_y_2d,
+        ) = _build_screen_space_ring_basis(
             context,
             self._guide_center_2d,
             self._start_loc,
-            ring_m,
+            ring_matrix,
             pixel_radius,
         )
 
-        # Solve the initial mouse position on the projected ring so later mouse motion
-        # can accumulate angular delta from a stable starting angle.
-        if self._guide_center_2d is not None and self._guide_basis_x_2d is not None and self._guide_basis_y_2d is not None:
-            coeff = _solve_2d_basis(
-                self._guide_start_mouse_2d - self._guide_center_2d,
-                self._guide_basis_x_2d,
-                self._guide_basis_y_2d,
-            )
-            if coeff is not None:
-                u, v = coeff
-                self._guide_start_angle = math.atan2(v, u)
+        self._guide_start_angle = 0.0
+        self._guide_total_angle = 0.0
+
+        initial_angle = _ellipse_angle_from_mouse(
+            self._guide_center_2d,
+            self._guide_start_mouse_2d,
+            self._guide_basis_x_2d,
+            self._guide_basis_y_2d,
+        )
+
+        if initial_angle is not None:
+            self._guide_start_angle = initial_angle
 
         self._guide_last_mouse_angle = self._guide_start_angle
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
+
         _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
         _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
-        
-        self._guide_axis_dir_2d = None
-        self._guide_context = context
 
-        if self.axis in {"X", "Y", "Z"}:
-            axis_vec = self._get_frozen_axis_vector()
-            self._guide_axis_dir_2d = _project_axis_dir_2d(
-                context,
-                self._start_loc,
-                axis_vec,
+        self._guide_handler = (
+            bpy.types.SpaceView3D.draw_handler_add(
+                _rotate_guide_draw_op,
+                (self,),
+                'WINDOW',
+                'POST_PIXEL',
             )
-
-        axis_colors = get_theme_gizmo_colors(context)
-        self._axis_color_rgb = axis_colors.get(self.axis, (1.0, 1.0, 1.0))
-
-        self._guide_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _rotate_guide_draw_op, (self,), 'WINDOW', 'POST_PIXEL'
         )
 
-        context.workspace.status_text_set(draw_status_rotate_axis)
-
+        context.workspace.status_text_set(
+            draw_status_rotate_axis
+        )
         context.window.cursor_modal_set('MOVE_X')
-        wm = context.window_manager
-        wm.cursortransform_active_rotate_axis = self.axis
-        wm.modal_handler_add(self)
-        self._ctrl_pressed = False
+
+        window_manager = context.window_manager
+        window_manager.cursortransform_active_rotate_axis = self.axis
+        window_manager.modal_handler_add(self)
+
         self._numeric_input = ""
         self._numeric_active = False
 
-        # MMB axis-pickup state. _mmb_held is True between MIDDLEMOUSE press
-        # and release; _mmb_axis_dirs_2d caches the projected screen-space
-        # direction of each X/Y/Z axis from the cursor pivot for proximity
-        # detection. The active rotation axis (self.axis) is updated live
-        # via _switch_axis_constraint when the mouse approaches a different
-        # axis line — there's no separate "preselected" state.
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
-        return {'RUNNING_MODAL'}
 
+        return {'RUNNING_MODAL'}
+    
     def _remove_guide_handler(self):
-        """
-        Remove the draw handler and clear all cached guide state for the modal drag.
-        """
+        """Remove the guide handler and clear its cached state."""
         if getattr(self, "_guide_handler", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(self._guide_handler, 'WINDOW')
+            bpy.types.SpaceView3D.draw_handler_remove(
+                self._guide_handler,
+                'WINDOW',
+            )
             self._guide_handler = None
 
         global _ROTATE_ACTIVE_ORIENT
         global _ROTATE_ACTIVE_VIEW
+
         _ROTATE_ACTIVE_ORIENT = None
         _ROTATE_ACTIVE_VIEW = None
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
         global _ROTATE_GUIDE_CTRL_PRESSED
+
         _ROTATE_GUIDE_START_ANGLE = 0.0
         _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
         _ROTATE_GUIDE_CTRL_PRESSED = False
@@ -1749,11 +1748,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         global _ROTATE_MMB_HELD
         _ROTATE_MMB_HELD = False
 
-        # Clear previous-axis memory used by the trackball R-toggle. The
-        # _swap_to_trackball helper re-writes this AFTER calling us so the
-        # swap path retains its value; non-swap exit paths (LMB confirm,
-        # RMB/ESC cancel) leave the global cleared so a fresh R from idle
-        # doesn't restore stale state.
         global _ROTATE_PREVIOUS_AXIS
         _ROTATE_PREVIOUS_AXIS = None
 
@@ -1765,124 +1759,129 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_start_angle = 0.0
         self._guide_total_angle = 0.0
         self._guide_last_mouse_angle = 0.0
-        self._guide_axis_dir_2d = None
-        self._guide_context = None
 
     def _get_active_orient(self):
-        """
-        Return the orient matrix currently in effect for X/Y/Z rotation
-        (header orient on 1st-press cycle state, alternate orient on
-        2nd-press). Used by the ring math, the axis-vector helper, and
-        the gizmo group's draw_prepare via the _ROTATE_ACTIVE_ORIENT
-        global which is kept in sync.
-        """
+        """Return the currently active constrained-rotation basis."""
         if self._using_alternate_orient:
             return self._start_orient_alternate
+
         return self._start_orient
 
     def _get_frozen_axis_vector(self):
-        """
-        Return the frozen world-space rotation axis for the active constrained mode.
-        """
+        """Return the frozen world-space rotation axis."""
         if self.axis == "VIEW":
-            return (self._start_view @ Vector((0.0, 0.0, 1.0))).normalized()
+            return (
+                self._start_view
+                @ Vector((0.0, 0.0, 1.0))
+            ).normalized()
 
-        idx = AXIS_INDEX[self.axis]
-        return self._get_active_orient().col[idx].to_3d().normalized()
+        axis_index = AXIS_INDEX[self.axis]
+
+        return (
+            self._get_active_orient()
+            .col[axis_index]
+            .to_3d()
+            .normalized()
+        )
 
     def _update_header_text(self, context, angle):
-        deg = math.degrees(angle)
+        """Update the rotation value shown in the viewport header."""
+        degrees = math.degrees(angle)
 
         if self.axis == "VIEW":
             context.area.header_text_set(
-                f"Rotation: {deg:.2f}\u00b0"
+                f"Rotation: {degrees:.2f}\u00b0"
             )
             return
 
         if self._using_alternate_orient:
-            orient_label = alternate_orient_label(context).lower()
+            orientation_label = (
+                alternate_orient_label(context).lower()
+            )
         else:
-            orient_label = get_orient_type(context).lower()
+            orientation_label = (
+                get_orient_type(context).lower()
+            )
 
         context.area.header_text_set(
-            f"Rotation: {deg:.2f}\u00b0 along {orient_label} {self.axis}"
+            f"Rotation: {degrees:.2f}\u00b0 "
+            f"along {orientation_label} {self.axis}"
         )
 
-    def _switch_axis_constraint(self, context, event, new_axis, use_alternate_orient=False):
+    def _switch_axis_constraint(
+        self,
+        context,
+        event,
+        new_axis,
+        use_alternate_orient=False,
+    ):
         """
-        Switch the active rotation constraint while the modal rotate operator
-        keeps running.
-
-        This mimics Blender-style X/Y/Z axis switching during rotation.
-        The current cursor rotation becomes the new starting rotation, so the
-        switch does not jump back to the original drag start.
-
-        new_axis can be "X", "Y", "Z", or "VIEW". The VIEW case is used by
-        the 3-state axis-key cycle: pressing the same axis key three times
-        in a row goes header-orient → alternate-orient → VIEW (no constraint).
-
-        use_alternate_orient selects between the header orient (False, the
-        default — used for 1st-press cycle state and for fresh axis switches
-        like MMB pickup) and the alternate orient (True — used for 2nd-press
-        cycle state). The flag is stored on self._using_alternate_orient
-        and read by _get_active_orient().
+        Switch the active rotation constraint without interrupting the modal.
         """
         if new_axis not in {"X", "Y", "Z", "VIEW"}:
             return
 
-        # No-op early return: same axis AND same orient mode means nothing
-        # would change. Comparing both is important because we may legitimately
-        # call this with the same axis but a different orient flag (cycling
-        # 1st-press X to 2nd-press X).
-        if self.axis == new_axis and self._using_alternate_orient == use_alternate_orient:
+        if (
+            self.axis == new_axis
+            and self._using_alternate_orient == use_alternate_orient
+        ):
             return
 
         cursor = context.scene.cursor
 
-        # Use the current rotation as the new baseline.
+        # Continue from the current cursor rotation without jumping.
         self._start_quat = get_cursor_quaternion(cursor)
         self._start_euler_compat = cursor.rotation_euler.copy()
 
-        # Switch active axis and orient mode.
         self.axis = new_axis
         self._using_alternate_orient = use_alternate_orient
 
-        # Keep the gizmo overlay in sync — _ROTATE_ACTIVE_ORIENT drives the
-        # gizmo group's drawing of the rotation rings/wedge/ticks. For VIEW
-        # the orient isn't used (the view_basis matrix takes its place via
-        # the ROTATE_ACTIVE_VIEW global which is already set), but we still
-        # keep _ROTATE_ACTIVE_ORIENT pointing at something sensible.
         global _ROTATE_ACTIVE_ORIENT
         _ROTATE_ACTIVE_ORIENT = self._get_active_orient().copy()
 
-        # Reset accumulated angle for the new axis.
         self._guide_total_angle = 0.0
 
-        # Rebuild the 2D guide basis for the new rotation ring. VIEW uses
-        # the view-rotation matrix and the larger view-ring radius; X/Y/Z
-        # use the active orient and the standard ring radius.
-        gizmo_pref = max(context.preferences.view.gizmo_size, 1)
-        if self.axis == "VIEW":
-            ring_m = self._start_view.copy()
-            pixel_radius = gizmo_pref * ROTATE_VIEW_RING_PIXEL_RADIUS
-        else:
-            ring_m = self._get_active_orient() @ AXIS_ROT[self.axis]
-            pixel_radius = gizmo_pref * ROTATE_RING_PIXEL_RADIUS
+        gizmo_size = max(
+            context.preferences.view.gizmo_size,
+            1,
+        )
 
-        self._guide_basis_x_2d, self._guide_basis_y_2d = _build_screen_space_ring_basis(
+        if self.axis == "VIEW":
+            ring_matrix = self._start_view.copy()
+            pixel_radius = (
+                gizmo_size
+                * ROTATE_VIEW_RING_PIXEL_RADIUS
+            )
+        else:
+            ring_matrix = (
+                self._get_active_orient()
+                @ AXIS_ROT[self.axis]
+            )
+            pixel_radius = (
+                gizmo_size
+                * ROTATE_RING_PIXEL_RADIUS
+            )
+
+        (
+            self._guide_basis_x_2d,
+            self._guide_basis_y_2d,
+        ) = _build_screen_space_ring_basis(
             context,
             self._guide_center_2d,
             self._start_loc,
-            ring_m,
+            ring_matrix,
             pixel_radius,
         )
 
-        mouse_now = Vector((event.mouse_region_x, event.mouse_region_y))
-        self._guide_mouse_2d = mouse_now
+        current_mouse = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
+        self._guide_mouse_2d = current_mouse
 
         mouse_angle = _ellipse_angle_from_mouse(
             self._guide_center_2d,
-            mouse_now,
+            current_mouse,
             self._guide_basis_x_2d,
             self._guide_basis_y_2d,
         )
@@ -1895,53 +1894,49 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
+
         _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
         _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
 
-        axis_colors = get_theme_gizmo_colors(context)
-        self._axis_color_rgb = axis_colors.get(self.axis, (1.0, 1.0, 1.0))
-
-        context.window_manager.cursortransform_active_rotate_axis = self.axis
+        context.window_manager.cursortransform_active_rotate_axis = (
+            self.axis
+        )
 
         self._update_header_text(context, 0.0)
-
         tag_viewport_redraw(context)
 
-    def _advance_axis_cycle(self, context, event, key):
+    def _advance_axis_cycle(self, context, event, axis):
         """
-        3-state axis-key cycle: pressing the same axis key (X, Y, or Z)
-        repeatedly cycles header-orient → alternate-orient → VIEW. Pressing
-        a different axis key resets the cycle to 1st-press header-orient
-        of that new axis. Native Blender's transform-modal behavior.
-
-        Called from the modal X/Y/Z key handler instead of calling
-        _switch_axis_constraint directly. MMB-pickup proximity switches
-        still call _switch_axis_constraint with default args (header
-        orient), which correctly resets the cycle for the new axis.
+        Advance the active axis through primary, alternate, and View modes.
         """
-        if self.axis == key and not self._using_alternate_orient:
-            # 1st-press → 2nd-press: same axis, alternate orient.
+        if (
+            self.axis == axis
+            and not self._using_alternate_orient
+        ):
             self._switch_axis_constraint(
-                context, event, key, use_alternate_orient=True
+                context,
+                event,
+                axis,
+                use_alternate_orient=True,
             )
-        elif self.axis == key and self._using_alternate_orient:
-            # 2nd-press → 3rd-press: switch to VIEW (no constraint).
-            # _switch_axis_constraint resets _using_alternate_orient to
-            # False via the use_alternate_orient default param.
-            self._switch_axis_constraint(context, event, "VIEW")
+        elif (
+            self.axis == axis
+            and self._using_alternate_orient
+        ):
+            self._switch_axis_constraint(
+                context,
+                event,
+                "VIEW",
+            )
         else:
-            # Different axis pressed, OR coming from VIEW: fresh cycle on
-            # the new axis at 1st-press header-orient.
-            self._switch_axis_constraint(context, event, key)
+            self._switch_axis_constraint(
+                context,
+                event,
+                axis,
+            )
 
     def _clear_constraints(self, context, event):
-        """
-        Clear the active rotation constraint and return to view rotation.
-
-        This mirrors Blender's C shortcut during transform: when an X/Y/Z
-        rotation constraint is active, C clears that constraint and goes back
-        to unconstrained/view rotation.
-        """
+        """Clear an axis constraint and return to View rotation."""
         if self.axis not in {"X", "Y", "Z"}:
             return
 
@@ -1953,90 +1948,55 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         )
 
     def _swap_to_trackball(self, context):
-        """
-        Mid-modal swap from view/axis rotation to trackball (free) rotation.
-
-        Cleanly tears down this modal's draw handler and shared rotation
-        state, records the axis we came from in _ROTATE_PREVIOUS_AXIS, then
-        invokes rotate_free_modal with INVOKE_DEFAULT. The new modal
-        snapshots the cursor's current location/rotation as its starting
-        baseline, so rotation continues seamlessly without a jump.
-
-        The previous-axis write happens AFTER _remove_guide_handler because
-        that helper clears the same global on non-swap exit paths (LMB
-        confirm, RMB cancel, etc.) — keeping the swap-only write last lets
-        both code paths share the cleanup helper without interfering.
-
-        Mirrors native Blender's behavior: pressing R during a rotation
-        modal swaps to trackball, and pressing R again swaps back to
-        whatever axis or view mode was active before. The round-trip is
-        closed by rotate_free_modal._swap_to_view_rotation.
-        """
+        """Switch from constrained rotation to trackball rotation."""
         global _ROTATE_PREVIOUS_AXIS
 
-        previous_axis = self.axis  # capture before cleanup blanks state
+        previous_axis = self.axis
 
         self._remove_guide_handler()
         cleanup_rotation_modal(context)
 
-        # Write AFTER cleanup. _remove_guide_handler clears
-        # _ROTATE_PREVIOUS_AXIS as part of its normal teardown (so a
-        # full LMB-confirm exit doesn't leave stale state behind for
-        # the next R from idle); writing here re-asserts the value
-        # specifically for the swap path.
+        # Restore the value cleared by the normal modal cleanup path.
         _ROTATE_PREVIOUS_AXIS = previous_axis
 
-        # The cleanup above clears cursortransform_active_rotate_axis to "".
-        # rotate_free_modal's invoke will set it back to "FREE", so there's
-        # a one-frame gap where the gizmo group sees no active axis. That's
-        # harmless — the cursor's transform has already been committed by
-        # this modal up to its current state, and the new modal picks up
-        # immediately on the next event.
-        bpy.ops.cursortransform.rotate_free_modal('INVOKE_DEFAULT')
+        bpy.ops.cursortransform.rotate_free_modal(
+            'INVOKE_DEFAULT'
+        )
 
     def _enter_mmb_pickup(self, context):
-        """
-        Begin MMB axis pickup. Cache the screen-space projection of each
-        world axis from the cursor pivot, so MOUSEMOVE during the hold can
-        do proximity detection without reprojecting. Set the global flag
-        so draw_prepare knows to show all three axis lines.
-
-        Rotation continues normally during the hold — this routine doesn't
-        freeze anything. The only effect is that subsequent MOUSEMOVE events
-        also test proximity and may switch the active axis on the fly.
-        """
+        """Begin screen-space axis selection with the middle mouse button."""
         global _ROTATE_MMB_HELD
 
         self._mmb_held = True
-
-        # Project each world axis (from the frozen orient at modal start)
-        # to a 2D screen direction once. The cursor pivot doesn't move
-        # during the hold, so the projected directions are constant — we
-        # don't need to reproject on every MOUSEMOVE.
-        center_3d = self._start_loc
         self._mmb_axis_dirs_2d = {}
+
         for axis in ("X", "Y", "Z"):
-            idx = AXIS_INDEX[axis]
-            world_axis = self._get_active_orient().col[idx].to_3d().normalized()
-            self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(
-                context, center_3d, world_axis,
+            axis_index = AXIS_INDEX[axis]
+            world_axis = (
+                self._get_active_orient()
+                .col[axis_index]
+                .to_3d()
+                .normalized()
+            )
+
+            self._mmb_axis_dirs_2d[axis] = (
+                _project_axis_dir_2d(
+                    context,
+                    self._start_loc,
+                    world_axis,
+                )
             )
 
         _ROTATE_MMB_HELD = True
-
         tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
-        """
-        Called from MOUSEMOVE during MMB hold. If the mouse is within the
-        proximity threshold of an axis line that is NOT the currently
-        active one, switch the constraint to it. Returns True if a switch
-        happened (so the caller knows to skip its own rotation update —
-        _switch_axis_constraint already re-anchored mouse angle and will
-        produce a clean continuation on the next MOUSEMOVE).
-        """
-        mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
-        threshold_px = (
+        """Switch to the projected axis nearest to the mouse."""
+        mouse_2d = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
+        threshold_pixels = (
             ROTATE_MMB_PROXIMITY_THRESHOLD_PX
             * context.preferences.system.pixel_size
         )
@@ -2045,31 +2005,25 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             mouse_2d,
             self._guide_center_2d,
             self._mmb_axis_dirs_2d,
-            threshold_px,
+            threshold_pixels,
         )
 
         if new_axis is not None and new_axis != self.axis:
-            # Keep the current orientation cycle state during MMB pickup.
-            # Example: R -> X -> X enters alternate/local X when the header
-            # orientation is Global. MMB should then keep using that same
-            # alternate/local basis instead of switching back to Global.
+            # Preserve the current primary or alternate orientation state.
             self._switch_axis_constraint(
                 context,
                 event,
                 new_axis,
-                use_alternate_orient=self._using_alternate_orient,
+                use_alternate_orient=(
+                    self._using_alternate_orient
+                ),
             )
             return True
 
         return False
 
     def _exit_mmb_pickup(self, context):
-        """
-        End MMB axis pickup on MIDDLEMOUSE release. The active axis is
-        whatever the proximity logic last set it to — that stays active.
-        We only need to clear the hold flag so the gizmo group stops
-        showing all three axis lines.
-        """
+        """End middle-mouse axis selection."""
         global _ROTATE_MMB_HELD
 
         self._mmb_held = False
@@ -2079,40 +2033,44 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def _apply_rotation(self, context, angle):
-        """
-        Apply the accumulated constrained rotation angle around the frozen axis.
-        """
+        """Apply rotation around the frozen axis."""
         cursor = context.scene.cursor
-        axis_vec = self._get_frozen_axis_vector()
+        axis_vector = self._get_frozen_axis_vector()
 
-        # Build one delta quaternion around the frozen gizmo axis.
-        delta_q = Quaternion(axis_vec, angle)
+        delta_quaternion = Quaternion(
+            axis_vector,
+            angle,
+        )
+        new_quaternion = (
+            delta_quaternion
+            @ self._start_quat
+        )
 
-        # Apply that delta to the frozen starting orientation.
-        new_quat = delta_q @ self._start_quat
-
-        # Write it back in the cursor's current rotation mode.
         set_cursor_from_quaternion(
             cursor,
-            new_quat,
+            new_quaternion,
             self._start_euler_compat,
         )
 
     def modal(self, context, event):
-        """
-        Update the constrained rotation from mouse motion and handle confirm/cancel.
-        """
+        """Handle constrained cursor rotation."""
         global _ROTATE_GUIDE_TOTAL_ANGLE
         global _ROTATE_GUIDE_CTRL_PRESSED
-        self._ctrl_pressed = event.ctrl
+
         _ROTATE_GUIDE_CTRL_PRESSED = event.ctrl
 
-        # Numeric input
         if event.value == 'PRESS':
             key = event.type
 
-            self._numeric_input, self._numeric_active, confirm, consume = handle_numeric_key(
-                key, self._numeric_input, self._numeric_active
+            (
+                self._numeric_input,
+                self._numeric_active,
+                confirm,
+                consume,
+            ) = handle_numeric_key(
+                key,
+                self._numeric_input,
+                self._numeric_active,
             )
 
             if confirm:
@@ -2124,51 +2082,73 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 self._remove_guide_handler()
                 switch_native_rotate_to_translate(
                     context,
-                    self.axis if self.axis in {"X", "Y", "Z"} else None,
+                    (
+                        self.axis
+                        if self.axis in {"X", "Y", "Z"}
+                        else None
+                    ),
                 )
                 return {'FINISHED'}
 
-            if key in {"X", "Y", "Z"} and not event.is_repeat:
-                self._advance_axis_cycle(context, event, key)
+            if (
+                key in {"X", "Y", "Z"}
+                and not event.is_repeat
+            ):
+                self._advance_axis_cycle(
+                    context,
+                    event,
+                    key,
+                )
                 return {'RUNNING_MODAL'}
-            
+
             if key == 'C' and not event.is_repeat:
-                self._clear_constraints(context, event)
+                self._clear_constraints(
+                    context,
+                    event,
+                )
                 return {'RUNNING_MODAL'}
-            
+
             if key == 'R' and not event.is_repeat:
-                # Swap from view/axis rotation to trackball. The cursor's
-                # current rotation becomes the new modal's starting point,
-                # so rotation continues seamlessly. Native Blender works
-                # this way for object-mode rotation; we mirror that.
                 self._swap_to_trackball(context)
                 return {'FINISHED'}
 
             if self._numeric_active:
-                angle = math.radians(parse_numeric_input(self._numeric_input))
-                _ROTATE_GUIDE_TOTAL_ANGLE = angle
-                orient_label = get_orient_type(context).capitalize()
-                context.area.header_text_set(
-                    f"Rotation: {self._numeric_input}°  {orient_label}"
+                angle = math.radians(
+                    parse_numeric_input(
+                        self._numeric_input
+                    )
                 )
-                self._apply_rotation(context, angle)
+                _ROTATE_GUIDE_TOTAL_ANGLE = angle
+
+                orientation_label = (
+                    get_orient_type(context).capitalize()
+                )
+                context.area.header_text_set(
+                    f"Rotation: {self._numeric_input}\u00b0  "
+                    f"{orientation_label}"
+                )
+
+                self._apply_rotation(
+                    context,
+                    angle,
+                )
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
             if consume:
                 return {'RUNNING_MODAL'}
 
-        # MMB axis pickup: while held, all three axis lines are visible and
-        # the constraint switches in real time as the mouse moves near a
-        # different axis. Rotation continues normally on whichever axis is
-        # active at any given moment.
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
                 if not self._numeric_active:
                     self._enter_mmb_pickup(context)
+
                 return {'RUNNING_MODAL'}
 
-            if event.value == 'RELEASE' and self._mmb_held:
+            if (
+                event.value == 'RELEASE'
+                and self._mmb_held
+            ):
                 self._exit_mmb_pickup(context)
                 return {'RUNNING_MODAL'}
 
@@ -2176,51 +2156,72 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             if self._numeric_active:
                 return {'RUNNING_MODAL'}
 
-            # While MMB is held, check proximity to the three axis lines
-            # before applying rotation. If a different axis is now closest,
-            # _switch_axis_constraint re-anchors the mouse angle and resets
-            # the accumulated total — applying rotation this frame on top
-            # would produce a jump, so we skip it. The next MOUSEMOVE will
-            # naturally apply rotation against the new baseline.
             if self._mmb_held:
-                switched = self._maybe_switch_axis_by_proximity(context, event)
-                if switched:
-                    self._guide_mouse_2d = Vector(
-                        (event.mouse_region_x, event.mouse_region_y)
+                switched_axis = (
+                    self._maybe_switch_axis_by_proximity(
+                        context,
+                        event,
                     )
+                )
+
+                if switched_axis:
+                    self._guide_mouse_2d = Vector((
+                        event.mouse_region_x,
+                        event.mouse_region_y,
+                    ))
                     return {'RUNNING_MODAL'}
 
-            mouse_now = Vector((event.mouse_region_x, event.mouse_region_y))
-            self._guide_mouse_2d = mouse_now
+            current_mouse = Vector((
+                event.mouse_region_x,
+                event.mouse_region_y,
+            ))
+            self._guide_mouse_2d = current_mouse
+
             mouse_angle = _ellipse_angle_from_mouse(
                 self._guide_center_2d,
-                mouse_now,
+                current_mouse,
                 self._guide_basis_x_2d,
                 self._guide_basis_y_2d,
             )
+
             if mouse_angle is not None:
-                delta = _wrap_pi(mouse_angle - self._guide_last_mouse_angle)
+                angle_delta = _wrap_pi(
+                    mouse_angle
+                    - self._guide_last_mouse_angle
+                )
+
                 if event.shift:
-                    delta *= 0.1
-                self._guide_total_angle += delta
+                    angle_delta *= 0.1
+
+                self._guide_total_angle += angle_delta
                 self._guide_last_mouse_angle = mouse_angle
 
             angle = self._guide_total_angle
 
-            # Apply angle snapping to the accumulated drag when Ctrl is held.
             if event.ctrl:
-                angle = round(angle / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP
+                angle = (
+                    round(angle / ROTATE_SNAP_STEP)
+                    * ROTATE_SNAP_STEP
+                )
 
             _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
-            self._update_header_text(context, angle)
+            self._update_header_text(
+                context,
+                angle,
+            )
+            self._apply_rotation(
+                context,
+                angle,
+            )
 
-            self._apply_rotation(context, angle)
-            
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
 
-        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+        if (
+            event.type == 'LEFTMOUSE'
+            and event.value == 'RELEASE'
+        ):
             self._remove_guide_handler()
             cleanup_rotation_modal(context)
             return {'FINISHED'}
