@@ -2240,43 +2240,51 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
 
 class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
-    """Freely rotate the 3D Cursor by dragging inside the rotation sphere."""
+    """Freely rotate the 3D Cursor using a virtual trackball."""
+
     bl_idname = "cursortransform.rotate_free_modal"
     bl_label = "Cursor Rotate Free"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     def invoke(self, context, event):
-        """
-        Initialize the free-rotation arcball state from the current cursor and view.
-        """
+        """Initialize the free-rotation modal state."""
         cursor = context.scene.cursor
-        wm = context.window_manager
+        window_manager = context.window_manager
 
-        rot_state = cache_cursor_rotation_state(cursor)
-        self._rot_mode = rot_state["rot_mode"]
-        self._start_rot = rot_state["start_rot"]
-        self._start_quat = rot_state["start_quat"]
-        self._start_euler_compat = rot_state["start_euler_compat"]
+        rotation_state = cache_cursor_rotation_state(cursor)
+        self._rot_mode = rotation_state["rot_mode"]
+        self._start_rot = rotation_state["start_rot"]
+        self._start_quat = rotation_state["start_quat"]
+        self._start_euler_compat = rotation_state["start_euler_compat"]
 
-        # Cache the cursor position and current view basis used to initialize the
-        # free-rotation arcball and keep the drag visually stable.
         self._start_loc = cursor.matrix.translation.copy()
         self._start_view = get_view_rot_matrix(context).copy()
 
         center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region, context.region_data, self._start_loc
+            context.region,
+            context.region_data,
+            self._start_loc,
         )
+
         if center_2d is None:
             return {'CANCELLED'}
 
-        # Derive the free-rotation arcball radius from the view ring size so the
-        # trackball interaction matches the visible free-rotate disc.
-        gizmo_pref = max(context.preferences.view.gizmo_size, 1)
-        ring_radius_px = gizmo_pref * ROTATE_VIEW_RING_PIXEL_RADIUS
-        self._arcball_radius_px = ring_radius_px * FREE_ROTATE_DISC_SCALE_FACTOR
-        self._arcball_center_2d = center_2d
+        gizmo_size = max(context.preferences.view.gizmo_size, 1)
+        ring_radius_pixels = (
+            gizmo_size
+            * ROTATE_VIEW_RING_PIXEL_RADIUS
+        )
 
-        self._start_mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
+        self._arcball_center_2d = center_2d
+        self._arcball_radius_px = (
+            ring_radius_pixels
+            * FREE_ROTATE_DISC_SCALE_FACTOR
+        )
+
+        self._start_mouse_2d = Vector((
+            event.mouse_region_x,
+            event.mouse_region_y,
+        ))
         self._start_ball_vec = _map_to_arcball(
             self._arcball_center_2d,
             self._start_mouse_2d,
@@ -2286,37 +2294,22 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         if self._start_ball_vec is None:
             return {'CANCELLED'}
 
-        # Freeze the view basis for the duration of the drag so the arcball mapping
-        # remains stable even if the viewport changes.
+        # Freeze the view basis for the duration of the modal operation.
         global _ROTATE_ACTIVE_VIEW
         _ROTATE_ACTIVE_VIEW = self._start_view.copy()
 
-        wm.cursortransform_active_rotate_axis = "FREE"
+        window_manager.cursortransform_active_rotate_axis = "FREE"
         context.window.cursor_modal_set('SCROLL_XY')
         context.workspace.status_text_set(draw_status_rotate_free)
-        wm.modal_handler_add(self)
+        window_manager.modal_handler_add(self)
+
         self._numeric_input = ""
         self._numeric_active = False
+
         return {'RUNNING_MODAL'}
 
     def _swap_to_view_rotation(self, context):
-        """
-        Mid-modal swap from trackball back to whatever rotation mode was
-        active before swapping in. The mirror of
-        rotate_modal._swap_to_trackball — together they close the loop so
-        repeated R presses alternate trackball ↔ previous-axis-or-view
-        indefinitely.
-
-        _ROTATE_PREVIOUS_AXIS holds the axis state from before the swap
-        (set by rotate_modal._swap_to_trackball). If it's a constrained
-        axis (X/Y/Z), invoke rotate_modal directly with that axis. If
-        it's "VIEW" or unset, fall through to rotate_view (which routes
-        through rotate_modal with axis="VIEW").
-
-        Cleans up trackball-specific shared state (_ROTATE_ACTIVE_VIEW)
-        before invoking the new modal so the latter captures a fresh
-        view basis, not the stale snapshot from before the round-trip.
-        """
+        """Return from trackball rotation to the previous rotation mode."""
         global _ROTATE_ACTIVE_VIEW
         global _ROTATE_PREVIOUS_AXIS
 
@@ -2331,56 +2324,77 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 'INVOKE_DEFAULT',
                 axis=previous_axis,
             )
-        else:
-            # No previous axis recorded (shouldn't happen in normal use)
-            # or the previous mode was VIEW. Either way, rotate_view is
-            # the right choice — it invokes rotate_modal with axis="VIEW".
-            bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
+            return
 
-    def _apply_arcball_rotation(self, context, ball_now, snap):
-        """
-        Apply the current arcball rotation delta and update the header display.
-        """
-        view_rot = self._start_view.to_3x3()
-        v0 = (view_rot @ self._start_ball_vec).normalized()
-        v1 = (view_rot @ ball_now).normalized()
-        delta_q = v0.rotation_difference(v1)
+        bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
 
-        # Snap the trackball delta per Euler axis, then rebuild the quaternion.
+    def _apply_arcball_rotation(self, context, ball_position, snap):
+        """Apply the current trackball rotation."""
+        view_rotation = self._start_view.to_3x3()
+
+        start_vector = (
+            view_rotation
+            @ self._start_ball_vec
+        ).normalized()
+        current_vector = (
+            view_rotation
+            @ ball_position
+        ).normalized()
+
+        delta_quaternion = start_vector.rotation_difference(
+            current_vector
+        )
+
         if snap:
-            delta_euler = delta_q.to_euler('XYZ')
-            delta_euler.x = round(delta_euler.x / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP
-            delta_euler.y = round(delta_euler.y / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP
-            delta_euler.z = round(delta_euler.z / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP
-            delta_q = delta_euler.to_quaternion()
+            delta_euler = delta_quaternion.to_euler('XYZ')
+            delta_euler.x = (
+                round(delta_euler.x / ROTATE_SNAP_STEP)
+                * ROTATE_SNAP_STEP
+            )
+            delta_euler.y = (
+                round(delta_euler.y / ROTATE_SNAP_STEP)
+                * ROTATE_SNAP_STEP
+            )
+            delta_euler.z = (
+                round(delta_euler.z / ROTATE_SNAP_STEP)
+                * ROTATE_SNAP_STEP
+            )
+            delta_quaternion = delta_euler.to_quaternion()
 
-        new_quat = delta_q @ self._start_quat
-        cursor = context.scene.cursor
+        new_quaternion = delta_quaternion @ self._start_quat
+
         set_cursor_from_quaternion(
-            cursor,
-            new_quat,
+            context.scene.cursor,
+            new_quaternion,
             self._start_euler_compat,
         )
 
-        # Derive the displayed trackball values from the snapped delta quaternion so
-        # the header matches the actual applied rotation.
-        snapped_euler = delta_q.to_euler('XYZ')
-        dx_deg = math.degrees(snapped_euler.x)
-        dy_deg = math.degrees(snapped_euler.y)
-        context.area.header_text_set(f"Trackball: {dx_deg:.2f}  {dy_deg:.2f}")    
+        displayed_euler = delta_quaternion.to_euler('XYZ')
+        horizontal_degrees = math.degrees(displayed_euler.x)
+        vertical_degrees = math.degrees(displayed_euler.y)
+
+        context.area.header_text_set(
+            f"Trackball: "
+            f"{horizontal_degrees:.2f}  "
+            f"{vertical_degrees:.2f}"
+        )
 
     def modal(self, context, event):
-        """
-        Update the free-rotation arcball state and handle confirm/cancel.
-        """
+        """Update the trackball rotation and handle modal input."""
         global _ROTATE_ACTIVE_VIEW
 
-        # Numeric input
         if event.value == 'PRESS':
             key = event.type
 
-            self._numeric_input, self._numeric_active, confirm, consume = handle_numeric_key(
-                key, self._numeric_input, self._numeric_active
+            (
+                self._numeric_input,
+                self._numeric_active,
+                confirm,
+                consume,
+            ) = handle_numeric_key(
+                key,
+                self._numeric_input,
+                self._numeric_active,
             )
 
             if confirm:
@@ -2390,26 +2404,41 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
             if key == 'G' and not event.is_repeat:
                 _ROTATE_ACTIVE_VIEW = None
-                switch_native_rotate_to_translate(context, None)
+                switch_native_rotate_to_translate(context)
                 return {'FINISHED'}
 
             if key == 'R' and not event.is_repeat:
-                # Swap from trackball back to view rotation. Mirror of the
-                # rotate_modal R-handler — closes the loop so multiple R
-                # presses alternate view ↔ trackball indefinitely.
                 self._swap_to_view_rotation(context)
                 return {'FINISHED'}
 
             if self._numeric_active:
-                typed_deg = parse_numeric_input(self._numeric_input)
-                angle = math.radians(typed_deg)
-                view_axis = (self._start_view @ Vector((0.0, 0.0, 1.0))).normalized()
-                delta_q = Quaternion(view_axis, angle)
-                new_quat = delta_q @ self._start_quat
-                set_cursor_from_quaternion(context.scene.cursor, new_quat, self._start_euler_compat)
-                context.area.header_text_set(
-                    f"Trackball: [{self._numeric_input}] = {typed_deg:.2f}\u00b0  None"
+                typed_degrees = parse_numeric_input(
+                    self._numeric_input
                 )
+                angle = math.radians(typed_degrees)
+
+                view_axis = (
+                    self._start_view
+                    @ Vector((0.0, 0.0, 1.0))
+                ).normalized()
+
+                delta_quaternion = Quaternion(view_axis, angle)
+                new_quaternion = (
+                    delta_quaternion
+                    @ self._start_quat
+                )
+
+                set_cursor_from_quaternion(
+                    context.scene.cursor,
+                    new_quaternion,
+                    self._start_euler_compat,
+                )
+
+                context.area.header_text_set(
+                    f"Trackball: [{self._numeric_input}] = "
+                    f"{typed_degrees:.2f}\u00b0  None"
+                )
+
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
@@ -2420,22 +2449,40 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             if self._numeric_active:
                 return {'RUNNING_MODAL'}
 
-            mouse_now = Vector((event.mouse_region_x, event.mouse_region_y))
-            mouse_input = self._start_mouse_2d + (mouse_now - self._start_mouse_2d) * (0.1 if event.shift else 1.0)
+            current_mouse = Vector((
+                event.mouse_region_x,
+                event.mouse_region_y,
+            ))
 
-            ball_now = _map_to_arcball(
+            precision_factor = 0.1 if event.shift else 1.0
+            mouse_input = (
+                self._start_mouse_2d
+                + (
+                    current_mouse
+                    - self._start_mouse_2d
+                ) * precision_factor
+            )
+
+            ball_position = _map_to_arcball(
                 self._arcball_center_2d,
                 mouse_input,
                 self._arcball_radius_px,
             )
 
-            if ball_now is not None:
-                self._apply_arcball_rotation(context, ball_now, snap=event.ctrl)
+            if ball_position is not None:
+                self._apply_arcball_rotation(
+                    context,
+                    ball_position,
+                    snap=event.ctrl,
+                )
 
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
 
-        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+        if (
+            event.type == 'LEFTMOUSE'
+            and event.value == 'RELEASE'
+        ):
             cleanup_rotation_modal(context)
             _ROTATE_ACTIVE_VIEW = None
             return {'FINISHED'}
@@ -2446,6 +2493,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 self._rot_mode,
                 self._start_rot,
             )
+
             cleanup_rotation_modal(context)
             _ROTATE_ACTIVE_VIEW = None
             return {'CANCELLED'}
