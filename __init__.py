@@ -1422,68 +1422,44 @@ def _closest_axis_to_mouse(
 
 # ── Rotation guide drawing ───────────────────────────────────────────────────
 
-def _draw_shortcut_axis_line(op):
+def _draw_shortcut_axis_line(operator):
     """
-    Draw the constraint axis line(s) as a fallback when the gizmo system
-    isn't running (master gizmo overlay toggled off, or all gizmo sub-
-    toggles disabled). In that state the gizmo group's poll never passes,
-    so CURSORTRANSFORM_GT_axis_line never draws — and we'd lose the
-    visual feedback that tells the user "the rotation is constrained to X."
-
-    Two distinct visual modes, mirroring the gizmo group's behavior:
-      - Normal rotation (MMB not held): only the active axis line is drawn,
-        fully colored. Nothing is drawn for VIEW/FREE rotation.
-      - MMB axis pickup hold: all three X/Y/Z axis lines drawn together;
-        the currently active axis (which switches in real time as the
-        mouse approaches a different axis line — see
-        _maybe_switch_axis_by_proximity) is at full alpha, the other two
-        dimmed to ROTATE_MMB_AXIS_LINE_DIM_ALPHA. During VIEW rotation
-        with MMB held, all three appear dimmed since no X/Y/Z is "active."
-
-    Drawn as 2D screen-space lines because we're inside a POST_PIXEL draw
-    handler. Projecting each axis direction to 2D up front via
-    view3d_utils sidesteps the screen-space-vs-world-space mismatch that
-    bit an earlier 3D-shader version of this function.
-
-    Only fires when the gizmo group is NOT going to draw the axis line
-    itself (i.e. the gizmo group's poll would fail).
+    Draw rotation constraint lines when the gizmo system is unavailable.
     """
     context = bpy.context
 
-    # Mirror the gizmo group's poll condition: the gizmo system only draws
-    # axis lines when the master overlay is on AND at least one of the
-    # location/rotation sub-toggles is on. If either part fails, the
-    # shortcut fallback (this function) is responsible for drawing them.
-    gizmo_will_draw_axis_line = (
+    gizmo_draws_axis_lines = (
         viewport_allows_gizmo(context)
-        and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
+        and (
+            location_gizmo_enabled(context)
+            or rotation_gizmo_enabled(context)
+        )
     )
-    if gizmo_will_draw_axis_line:
+
+    if gizmo_draws_axis_lines:
         return
 
-    # Decide which axes need drawing this frame.
     if _ROTATE_MMB_HELD:
         axes_to_draw = ("X", "Y", "Z")
-    elif op.axis in {"X", "Y", "Z"}:
-        axes_to_draw = (op.axis,)
+    elif operator.axis in {"X", "Y", "Z"}:
+        axes_to_draw = (operator.axis,)
     else:
-        # VIEW or FREE rotation with MMB not held — no axis line.
         return
 
     center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data, op._start_loc
+        context.region,
+        context.region_data,
+        operator._start_loc,
     )
+
     if center_2d is None:
-        # Cursor pivot projects behind the camera; nothing meaningful to draw.
         return
 
-    # Half-length larger than any reasonable region dimension guarantees
-    # both endpoints exit the visible area.
-    half_length_px = float(
+    half_length_pixels = float(
         max(context.region.width, context.region.height) * 2.0
     )
 
-    line_width_scaled = (
+    scaled_line_width = (
         ROTATE_CONSTRAINT_LINE_WIDTH
         * context.preferences.system.pixel_size
     )
@@ -1492,81 +1468,85 @@ def _draw_shortcut_axis_line(op):
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
     gpu.state.blend_set('ALPHA')
+
     shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-    shader.uniform_float("lineWidth", line_width_scaled)
+    shader.uniform_float(
+        "viewportSize",
+        gpu.state.viewport_get()[2:],
+    )
+    shader.uniform_float("lineWidth", scaled_line_width)
 
     for axis in axes_to_draw:
-        # Project this axis from world space to a 2D screen direction.
-        # We construct the world axis vector inline rather than calling
-        # _get_frozen_axis_vector because that helper only knows about
-        # op.axis — the currently active axis — and during MMB hold we
-        # need to project all three.
-        idx = AXIS_INDEX[axis]
-        world_axis = op._get_active_orient().col[idx].to_3d().normalized()
-        dir_2d = _project_axis_dir_2d(context, op._start_loc, world_axis)
+        axis_index = AXIS_INDEX[axis]
+        world_axis = (
+            operator._get_active_orient()
+            .col[axis_index]
+            .to_3d()
+            .normalized()
+        )
 
-        if dir_2d is None:
-            # Axis projects to a degenerate screen direction (we're looking
-            # straight along it). Skip — there's no meaningful line to draw.
+        direction_2d = _project_axis_dir_2d(
+            context,
+            operator._start_loc,
+            world_axis,
+        )
+
+        if direction_2d is None:
             continue
 
-        # Alpha: full for the active axis, dimmed for the others when
-        # MMB is held. When MMB isn't held we only loop over the active
-        # axis so the dim path is never reached in that case.
-        if axis == op.axis:
-            alpha = 1.0
-        else:
-            alpha = ROTATE_MMB_AXIS_LINE_DIM_ALPHA
+        alpha = (
+            1.0
+            if axis == operator.axis
+            else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
+        )
 
-        rgb = axis_highlight_color(axis_colors[axis])
-        color = (rgb[0], rgb[1], rgb[2], alpha)
+        axis_color = axis_highlight_color(axis_colors[axis])
+        color = (
+            axis_color[0],
+            axis_color[1],
+            axis_color[2],
+            alpha,
+        )
 
-        p0 = Vector((
-            center_2d.x - dir_2d.x * half_length_px,
-            center_2d.y - dir_2d.y * half_length_px,
+        line_start = Vector((
+            center_2d.x
+            - direction_2d.x * half_length_pixels,
+            center_2d.y
+            - direction_2d.y * half_length_pixels,
         ))
-        p1 = Vector((
-            center_2d.x + dir_2d.x * half_length_px,
-            center_2d.y + dir_2d.y * half_length_px,
+        line_end = Vector((
+            center_2d.x
+            + direction_2d.x * half_length_pixels,
+            center_2d.y
+            + direction_2d.y * half_length_pixels,
         ))
 
-        batch = batch_for_shader(shader, 'LINES', {"pos": [p0, p1]})
+        batch = batch_for_shader(
+            shader,
+            'LINES',
+            {"pos": [line_start, line_end]},
+        )
+
         shader.uniform_float("color", color)
         batch.draw(shader)
 
     gpu.state.blend_set('NONE')
 
 
-def _rotate_guide_draw_op(op):
-    """
-    Draw the active rotation guide overlay for the running modal operator.
-
-    This includes the dashed mouse guide, the full-screen constraint axis line,
-    and the optional Ctrl-snap tick marks.
-    """
-    center = op._guide_center_2d
-    mouse = op._guide_mouse_2d
+def _rotate_guide_draw_op(operator):
+    """Draw the screen-space guide for the active rotation modal."""
+    center = operator._guide_center_2d
+    mouse = operator._guide_mouse_2d
 
     if center is None or mouse is None:
         return
 
-    # Constraint axis line — drawn here only when the master gizmo overlay
-    # is OFF (gizmo system bypassed). When the overlay is on, the gizmo
-    # group's CURSORTRANSFORM_GT_axis_line handles it instead, with proper
-    # layering relative to the rings/wedge/ticks. Drawing the axis line
-    # FIRST in this handler ensures the dashed mouse guide appears on top.
-    _draw_shortcut_axis_line(op)
-
-    # Tick marks (Ctrl-snap) are still drawn by CURSORTRANSFORM_GT_rotate_ticks
-    # when the gizmo system is running. They have no shortcut-mode fallback;
-    # tick marks during gizmo-disabled rotation aren't part of native Blender's
-    # behavior either.
+    # Draw the constraint line first so the dashed guide remains on top.
+    _draw_shortcut_axis_line(operator)
 
     shadow_start = center + ROTATE_GUIDE_SHADOW_OFFSET
     shadow_end = mouse + ROTATE_GUIDE_SHADOW_OFFSET
 
-    # Dashed line
     _draw_dashed_line_2d(
         shadow_start,
         shadow_end,
