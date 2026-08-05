@@ -3319,29 +3319,29 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
 
 
 class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
-    """Move 3D cursor freely in view plane."""
-    bl_idname  = "cursortransform.translate_free"
-    bl_label   = "Cursor Translate Free"
+    """Move the 3D Cursor freely in the view plane."""
+
+    bl_idname = "cursortransform.translate_free"
+    bl_label = "Cursor Translate Free"
     bl_options = {'INTERNAL'}
 
     release_confirm: bpy.props.BoolProperty(default=True)
 
     @classmethod
     def poll(cls, context):
+        """Run only while the 3D Cursor tool is active."""
         return active_tool_is_cursor(context)
 
-    def invoke(self, context, event):
-        """
-        Launch Blender's native translate operator for free cursor movement.
-        """
+    def invoke(self, context, _event):
+        """Start Blender's native free cursor translation."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
-        wm = context.window_manager
-        wm.cursortransform_active_translate_axis = ""
+        context.window_manager.cursortransform_active_translate_axis = ""
 
-        # Store the starting transform for ghost preview drawing during translation.
-        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
+        _TRANSLATE_GHOST_START_LOC = (
+            context.scene.cursor.location.copy()
+        )
         _TRANSLATE_GHOST_START_ORIENT = None
 
         bpy.ops.transform.translate(
@@ -3349,6 +3349,7 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
             cursor_transform=True,
             release_confirm=self.release_confirm,
         )
+
         return {'FINISHED'}
 
 
