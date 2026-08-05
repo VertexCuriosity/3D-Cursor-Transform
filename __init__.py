@@ -1571,18 +1571,26 @@ def _rotate_guide_draw_op(operator):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
+    """Preferences for the 3D Cursor Transform add-on."""
+
     bl_idname = __name__
 
     align_added_snapped_to_cursor_rotation: bpy.props.BoolProperty(
-        name="Match 3D Cursor rotation",
-        description=("Objects added at or snapped to the 3D Cursor will also match its rotation"),
+        name="Match 3D Cursor Rotation",
+        description=(
+            "Objects added at or snapped to the 3D Cursor "
+            "will also match its rotation"
+        ),
         default=False,
         update=update_cursor_align_preference,
     )
 
-    def draw(self, context):
+    def draw(self, _context):
         layout = self.layout
-        layout.prop(self, "align_added_snapped_to_cursor_rotation")
+        layout.prop(
+            self,
+            "align_added_snapped_to_cursor_rotation",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
