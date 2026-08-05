@@ -1295,114 +1295,128 @@ def _map_to_arcball(center_2d, mouse_2d, radius_pixels):
 
 # ── Screen-space projection helpers ──────────────────────────────────────────
 
-def _build_screen_space_ring_basis(context, center_2d, center_3d, ring_m, pixel_radius):
+def _build_screen_space_ring_basis(
+    context,
+    center_2d,
+    center_3d,
+    ring_matrix,
+    pixel_radius,
+):
     """
-    Build a 2D ellipse basis for the rotation overlay that keeps a fixed size
-    in screen pixels, while still following the frozen 3D ring orientation.
+    Build a fixed-size screen-space basis for a projected rotation ring.
     """
     if center_2d is None:
         return None, None
 
-    sample = ROTATE_RING_BASIS_SAMPLE
+    sample_distance = ROTATE_RING_BASIS_SAMPLE
 
-    px_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data,
-        center_3d + ring_m.col[0].to_3d() * sample
+    point_x_2d = view3d_utils.location_3d_to_region_2d(
+        context.region,
+        context.region_data,
+        center_3d
+        + ring_matrix.col[0].to_3d() * sample_distance,
     )
-    py_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data,
-        center_3d + ring_m.col[1].to_3d() * sample
+    point_y_2d = view3d_utils.location_3d_to_region_2d(
+        context.region,
+        context.region_data,
+        center_3d
+        + ring_matrix.col[1].to_3d() * sample_distance,
     )
 
-    if px_2d is None or py_2d is None:
+    if point_x_2d is None or point_y_2d is None:
         return None, None
 
-    vx = px_2d - center_2d
-    vy = py_2d - center_2d
+    vector_x = point_x_2d - center_2d
+    vector_y = point_y_2d - center_2d
 
-    len_x = vx.length
-    len_y = vy.length
+    length_x = vector_x.length
+    length_y = vector_y.length
 
-    if len_x <= 1e-6 or len_y <= 1e-6:
+    if length_x <= 1e-6 or length_y <= 1e-6:
         return None, None
 
-    # Keep the longest projected axis at the requested pixel radius and scale the
-    # other proportionally so the ring preserves its projected ellipse shape while
-    # remaining visually independent from viewport zoom.
-    max_len = max(len_x, len_y)
+    # Preserve the projected ellipse shape while keeping a fixed screen size.
+    maximum_length = max(length_x, length_y)
 
-    basis_x_2d = vx.normalized() * (pixel_radius * (len_x / max_len))
-    basis_y_2d = vy.normalized() * (pixel_radius * (len_y / max_len))
+    basis_x_2d = (
+        vector_x.normalized()
+        * pixel_radius
+        * (length_x / maximum_length)
+    )
+    basis_y_2d = (
+        vector_y.normalized()
+        * pixel_radius
+        * (length_y / maximum_length)
+    )
 
     return basis_x_2d, basis_y_2d
 
 
-def _project_axis_dir_2d(context, center_3d, axis_vec):
-    """
-    Project a 3D axis direction into a normalized 2D screen-space vector
-    starting from the given world-space center.
-    """
+def _project_axis_dir_2d(context, center_3d, axis_vector):
+    """Project a 3D axis into a normalized screen-space direction."""
     center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data, center_3d
+        context.region,
+        context.region_data,
+        center_3d,
     )
     tip_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data,
-        center_3d + axis_vec.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE
+        context.region,
+        context.region_data,
+        center_3d
+        + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE,
     )
 
     if center_2d is None or tip_2d is None:
         return None
 
-    vec_2d = tip_2d - center_2d
-    if vec_2d.length <= 1e-6:
+    direction_2d = tip_2d - center_2d
+
+    if direction_2d.length <= 1e-6:
         return None
 
-    return vec_2d.normalized()
+    return direction_2d.normalized()
 
 
-def _closest_axis_to_mouse(mouse_2d, center_2d, axis_dirs_2d, threshold_px):
+def _closest_axis_to_mouse(
+    mouse_2d,
+    center_2d,
+    axis_directions_2d,
+    threshold_pixels,
+):
     """
-    Return the axis label ("X", "Y", "Z") of the projected axis line nearest
-    to the mouse position in screen space, or None if none is within the
-    threshold.
-
-    Each axis is treated as an infinite line through center_2d in the
-    direction given in axis_dirs_2d. Distance is the standard 2D point-to-
-    line distance (perpendicular). When two or more axes are within the
-    threshold the closest one wins; ties (rare in practice — would require
-    two axes projecting to the same screen direction) are broken by axis
-    enumeration order X, Y, Z.
-
-    Used during MMB axis pickup to determine which axis the user is
-    currently hovering near. axis_dirs_2d is expected to be a dict mapping
-    "X"/"Y"/"Z" to a unit-length 2D Vector; entries that are None (e.g.
-    when an axis projects to a degenerate direction because we're looking
-    straight down it) are skipped.
+    Return the projected axis nearest to the mouse within the threshold.
     """
-    if mouse_2d is None or center_2d is None:
+    if (
+        mouse_2d is None
+        or center_2d is None
+        or not axis_directions_2d
+    ):
         return None
 
-    rel = mouse_2d - center_2d
+    relative_mouse = mouse_2d - center_2d
 
-    best_axis = None
-    best_dist = float("inf")
+    closest_axis = None
+    closest_distance = float("inf")
 
     for axis in ("X", "Y", "Z"):
-        direction = axis_dirs_2d.get(axis) if axis_dirs_2d else None
+        direction = axis_directions_2d.get(axis)
+
         if direction is None:
             continue
 
-        # Perpendicular distance from rel to the line through origin with
-        # direction `direction`. With direction unit-length, this is just
-        # |rel.x * dir.y - rel.y * dir.x|.
-        perp = abs(rel.x * direction.y - rel.y * direction.x)
+        # Perpendicular distance to the infinite axis line.
+        distance = abs(
+            relative_mouse.x * direction.y
+            - relative_mouse.y * direction.x
+        )
 
-        if perp < best_dist:
-            best_dist = perp
-            best_axis = axis
+        if distance < closest_distance:
+            closest_distance = distance
+            closest_axis = axis
 
-    if best_dist <= threshold_px:
-        return best_axis
+    if closest_distance <= threshold_pixels:
+        return closest_axis
+
     return None
 
 
