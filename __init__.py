@@ -3649,20 +3649,26 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
             context.region_data,
             self.matrix_basis.translation,
         )
+
         if center_2d is None:
             return -1
 
         mouse = Vector(location)
         distance = (mouse - center_2d).length
 
+        gizmo_size = max(
+            context.preferences.view.gizmo_size,
+            1,
+        )
+
         outer_radius = (
-            75.0
+            gizmo_size
             * ROTATE_VIEW_RING_PIXEL_RADIUS
             * FREE_ROTATE_DISC_SCALE_FACTOR
         )
 
         deadzone_radius = (
-            75.0
+            gizmo_size
             * FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR
         )
 
@@ -3673,7 +3679,6 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
             return 0
 
         return -1
-
 
 class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
     """Rotation sector overlay for constrained cursor rotation."""
