@@ -3678,6 +3678,7 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
 
         return -1
 
+
 class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
     """Rotation sector overlay for constrained cursor rotation."""
 
