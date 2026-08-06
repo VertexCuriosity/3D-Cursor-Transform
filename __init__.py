@@ -3785,61 +3785,49 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
 
 
 class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
-    """
-    Full-screen constraint axis line, rendered as a long 3D line through the
-    cursor along the world-space rotation axis.
+    """Full-screen axis line for constrained cursor rotation."""
 
-    Previously this was drawn in screen space via a POST_PIXEL draw handler,
-    which forced it to render after the entire gizmo pass — covering the
-    Ctrl-snap tick marks and any other rotation overlay gizmos. Drawing as a
-    3D gizmo instead keeps it inside the same draw pass as the rings, sector,
-    and ticks, so registration order in the gizmo group controls visual
-    layering: sector under, axis line in the middle, ticks on top.
-
-    Visual behavior matches the screen-space version: the line projects to
-    a 2D screen-space line in the direction of the projected axis, naturally
-    collapsing to a point when the camera looks straight along the axis.
-    World-space endpoints are placed far enough from the cursor that they
-    exit any reasonable viewport at any zoom level, while staying small
-    enough to avoid floating-point precision artifacts.
-    """
     bl_idname = "CURSORTRANSFORM_GT_axis_line"
 
     def draw(self, context):
-        line_width_px = float(getattr(self, "line_width", ROTATE_CONSTRAINT_LINE_WIDTH))
-        color = getattr(self, "axis_color", (1.0, 1.0, 1.0, 1.0))
+        """Draw the rotation axis line over the scene."""
+        line_width = float(
+            getattr(
+                self,
+                "line_width",
+                ROTATE_CONSTRAINT_LINE_WIDTH,
+            )
+        )
+        color = getattr(
+            self,
+            "axis_color",
+            (1.0, 1.0, 1.0, 1.0),
+        )
 
-        # Same DPI scaling as the tick gizmo — pixel_size compensates for
-        # OS DPI scaling and Blender's Resolution Scale so the line keeps
-        # the same physical thickness across displays.
-        line_width_scaled = line_width_px * context.preferences.system.pixel_size
+        scaled_line_width = (
+            line_width
+            * context.preferences.system.pixel_size
+        )
 
-        # The line extends along the local Z axis to match the dial-ring
-        # matrix convention used elsewhere (e.g. AXIS_ROT and the rotation
-        # ring gizmos): rings live in local XY, with local Z being the
-        # axis of rotation perpendicular to the ring. Configuring this
-        # gizmo with the same matrix as a rotation ring places its line
-        # along the world-space rotation axis automatically.
-        far = 1.0e4
-        verts = [(0.0, 0.0, -far), (0.0, 0.0, far)]
+        line_extent = 1.0e4
+        vertices = [
+            (0.0, 0.0, -line_extent),
+            (0.0, 0.0, line_extent),
+        ]
 
-        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'LINES', {"pos": verts})
+        shader = gpu.shader.from_builtin(
+            'POLYLINE_UNIFORM_COLOR'
+        )
+        batch = batch_for_shader(
+            shader,
+            'LINES',
+            {"pos": vertices},
+        )
+
+        previous_depth_test = gpu.state.depth_test_get()
+        previous_depth_mask = gpu.state.depth_mask_get()
 
         gpu.state.blend_set('ALPHA')
-
-        # Save previous depth state. The axis line should:
-        #   1. Draw over scene geometry (matching native Blender — line is
-        #      visible through walls during rotation).
-        #   2. Not block other gizmo elements drawn after it. The wedge,
-        #      rings, and tick marks should all render on top regardless
-        #      of where in 3D space they happen to overlap the line.
-        # Depth-test 'NONE' satisfies (1); depth-mask False satisfies (2)
-        # by leaving the depth buffer untouched. Both are restored after
-        # the draw so we don't leak state into other gizmo draws or the
-        # rest of the viewport pass.
-        prev_depth_test = gpu.state.depth_test_get()
-        prev_depth_mask = gpu.state.depth_mask_get()
         gpu.state.depth_test_set('NONE')
         gpu.state.depth_mask_set(False)
 
@@ -3847,123 +3835,136 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
             gpu.matrix.multiply_matrix(self.matrix_world)
 
             shader.bind()
-            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-            shader.uniform_float("lineWidth", line_width_scaled)
+            shader.uniform_float(
+                "viewportSize",
+                gpu.state.viewport_get()[2:],
+            )
+            shader.uniform_float(
+                "lineWidth",
+                scaled_line_width,
+            )
             shader.uniform_float("color", color)
+
             batch.draw(shader)
 
-        gpu.state.depth_mask_set(prev_depth_mask)
-        gpu.state.depth_test_set(prev_depth_test)
+        gpu.state.depth_mask_set(previous_depth_mask)
+        gpu.state.depth_test_set(previous_depth_test)
         gpu.state.blend_set('NONE')
 
-    def draw_select(self, context, select_id):
-        # Visual only; no selection participation.
+    def draw_select(self, _context, _select_id):
         pass
 
 
 class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
-    """
-    Ctrl-snap tick marks rendered as a 3D gizmo.
+    """Snap-angle tick marks for cursor rotation."""
 
-    Drawing in 3D space (rather than screen space as before) gives two
-    benefits at once:
-      - Ticks sit precisely on the projected ring at every angle, because
-        the gizmo's matrix_world transforms a unit ring into the same
-        screen ellipse the rotation ring already uses.
-      - Tick length and offset are expressed in local (ring-radius) units,
-        so they scale with scale_basis instead of being hard-coded in
-        pixels. Identical proportional appearance at any monitor resolution.
-
-    Antialiasing: lines are drawn with the POLYLINE_UNIFORM_COLOR built-in
-    shader, the same path Blender's own gizmos use, which produces smooth
-    "vector-style" edges via per-pixel coverage. tick_width is the line
-    width uniform in screen pixels — that's the one piece that remains
-    pixel-based, matching Blender's native gizmo line-width convention.
-
-    Geometry: a tick at parametric angle θ is one line segment from the
-    base point (radius 1.0 + tick_offset along (cos θ, sin θ, 0)) out to
-    the tip (radius 1.0 + tick_offset + tick_length along the same
-    direction). Ticks run from start_angle through start_angle + 2π in 5°
-    steps.
-    """
     bl_idname = "CURSORTRANSFORM_GT_rotate_ticks"
 
     def draw(self, context):
-        start_angle = float(getattr(self, "start_angle", 0.0))
-        tick_offset = float(getattr(self, "tick_offset", ROTATE_TICK_OFFSET_LOCAL))
-        tick_length = float(getattr(self, "tick_length", ROTATE_TICK_LENGTH_LOCAL))
-        tick_width_px = float(getattr(self, "tick_width", ROTATE_TICK_WIDTH_PX))
-        tick_color = getattr(self, "tick_color", ROTATE_TICK_COLOR)
+        """Draw snap ticks around the active rotation ring."""
+        start_angle = float(
+            getattr(self, "start_angle", 0.0)
+        )
+        tick_offset = float(
+            getattr(
+                self,
+                "tick_offset",
+                ROTATE_TICK_OFFSET_LOCAL,
+            )
+        )
+        tick_length = float(
+            getattr(
+                self,
+                "tick_length",
+                ROTATE_TICK_LENGTH_LOCAL,
+            )
+        )
+        tick_width = float(
+            getattr(
+                self,
+                "tick_width",
+                ROTATE_TICK_WIDTH_PX,
+            )
+        )
+        tick_color = getattr(
+            self,
+            "tick_color",
+            ROTATE_TICK_COLOR,
+        )
 
-        # Scale line width by the system's pixel_size multiplier so a tick
-        # set to N "logical" pixels keeps the same physical thickness on
-        # any display. This is the same multiplier Blender uses for its
-        # own UI line widths — it combines OS DPI scaling and the user's
-        # Resolution Scale preference. Without this, line widths set in
-        # absolute device pixels render thinner on higher-DPI displays.
-        # tick_offset and tick_length don't need this because they're in
-        # local-space units that already get scaled through matrix_world.
-        tick_width_scaled = tick_width_px * context.preferences.system.pixel_size
+        scaled_tick_width = (
+            tick_width
+            * context.preferences.system.pixel_size
+        )
 
-        # Build LINE-pair vertices for every 5° tick. Each tick is a single
-        # line segment from base to tip in the gizmo's local frame; the
-        # gizmo's matrix_world (applied below via gpu.matrix) transforms
-        # the entire batch into world space.
-        verts = []
-        step = ROTATE_SNAP_STEP
-        end_angle = start_angle + math.tau
+        vertices = []
         angle = start_angle
+        end_angle = start_angle + math.tau
+
         while angle < end_angle - 1e-6:
-            c = math.cos(angle)
-            s = math.sin(angle)
-            base = (c * (1.0 + tick_offset), s * (1.0 + tick_offset), 0.0)
-            tip = (
-                c * (1.0 + tick_offset + tick_length),
-                s * (1.0 + tick_offset + tick_length),
+            cosine = math.cos(angle)
+            sine = math.sin(angle)
+
+            base_radius = 1.0 + tick_offset
+            tip_radius = base_radius + tick_length
+
+            base = (
+                cosine * base_radius,
+                sine * base_radius,
                 0.0,
             )
-            verts.append(base)
-            verts.append(tip)
-            angle += step
+            tip = (
+                cosine * tip_radius,
+                sine * tip_radius,
+                0.0,
+            )
 
-        if not verts:
+            vertices.extend((base, tip))
+            angle += ROTATE_SNAP_STEP
+
+        if not vertices:
             return
 
-        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'LINES', {"pos": verts})
+        shader = gpu.shader.from_builtin(
+            'POLYLINE_UNIFORM_COLOR'
+        )
+        batch = batch_for_shader(
+            shader,
+            'LINES',
+            {"pos": vertices},
+        )
+
+        previous_depth_test = gpu.state.depth_test_get()
+        previous_depth_mask = gpu.state.depth_mask_get()
 
         gpu.state.blend_set('ALPHA')
-
-        # Same depth state handling as the axis line — depth-test off so
-        # ticks render over scene geometry (the rotation overlay should
-        # always be visible during rotation), depth-mask off so they don't
-        # write to the depth buffer. State is restored after the draw.
-        prev_depth_test = gpu.state.depth_test_get()
-        prev_depth_mask = gpu.state.depth_mask_get()
         gpu.state.depth_test_set('NONE')
         gpu.state.depth_mask_set(False)
 
-        # gpu.matrix transforms apply to all subsequent draws within the
-        # push_pop block. Multiplying the gizmo's matrix_world maps our
-        # local-space tick coordinates into world space, where the
-        # ModelViewProjectionMatrix uniform on the shader picks them up
-        # correctly. (matrix_world already incorporates matrix_basis,
-        # scale_basis, and any other gizmo-internal transforms.)
         with gpu.matrix.push_pop():
             gpu.matrix.multiply_matrix(self.matrix_world)
 
             shader.bind()
-            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-            shader.uniform_float("lineWidth", tick_width_scaled)
-            shader.uniform_float("color", tick_color)
+            shader.uniform_float(
+                "viewportSize",
+                gpu.state.viewport_get()[2:],
+            )
+            shader.uniform_float(
+                "lineWidth",
+                scaled_tick_width,
+            )
+            shader.uniform_float(
+                "color",
+                tick_color,
+            )
+
             batch.draw(shader)
 
-        gpu.state.depth_mask_set(prev_depth_mask)
-        gpu.state.depth_test_set(prev_depth_test)
+        gpu.state.depth_mask_set(previous_depth_mask)
+        gpu.state.depth_test_set(previous_depth_test)
         gpu.state.blend_set('NONE')
 
-    def draw_select(self, context, select_id):
-        # Visual only; no selection participation.
+    def draw_select(self, _context, _select_id):
         pass
 
 
