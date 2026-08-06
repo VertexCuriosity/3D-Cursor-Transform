@@ -4676,7 +4676,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Registration
+# Keymaps and Registration
 # ─────────────────────────────────────────────────────────────────────────────
 
 classes = (
@@ -4701,53 +4701,51 @@ classes = (
 )
 
 
-# Keymap items registered by this addon, stored so unregister() can remove them.
-addon_keymaps = []
+_addon_keymaps = []
 
 
 def _register_keymaps():
-    """
-    Register G and R for the 3D Cursor tool.
+    """Register shortcuts for the 3D Cursor tool."""
+    window_manager = bpy.context.window_manager
+    keyconfig = window_manager.keyconfigs.addon
 
-    The keymap is tool-scoped, so these shortcuts only run while Blender's
-    Cursor tool is active. X/Y/Z are not registered here because Blender's
-    native translate modal already handles axis constraints after G starts.
-    """
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.addon
-    if kc is None:
+    if keyconfig is None:
         return
 
-    km = kc.keymaps.new(name="3D View Tool: Cursor", space_type='VIEW_3D')
+    keymap = keyconfig.keymaps.new(
+        name="3D View Tool: Cursor",
+        space_type='VIEW_3D',
+    )
 
-    kmi = km.keymap_items.new(
+    keymap_item = keymap.keymap_items.new(
         idname="cursortransform.translate_modal",
         type='G',
         value='PRESS',
     )
-    kmi.properties.release_confirm = False
-    addon_keymaps.append((km, kmi))
+    keymap_item.properties.release_confirm = False
+    _addon_keymaps.append((keymap, keymap_item))
 
-    kmi = km.keymap_items.new(
+    keymap_item = keymap.keymap_items.new(
         idname="cursortransform.rotate_view",
         type='R',
         value='PRESS',
     )
-    addon_keymaps.append((km, kmi))
+    _addon_keymaps.append((keymap, keymap_item))
 
 
 def _unregister_keymaps():
-    """Remove all keymap entries this addon registered."""
-    for km, kmi in addon_keymaps:
+    """Remove the add-on's registered shortcuts."""
+    for keymap, keymap_item in _addon_keymaps:
         try:
-            km.keymap_items.remove(kmi)
+            keymap.keymap_items.remove(keymap_item)
         except ReferenceError:
             pass
-    addon_keymaps.clear()
+
+    _addon_keymaps.clear()
 
 
 def register():
-    """Register the addon classes and runtime WindowManager properties."""
+    """Register the add-on."""
     global _CURSOR_ALIGN_IS_RUNNING
 
     for cls in classes:
@@ -4770,7 +4768,10 @@ def register():
     _CURSOR_ALIGN_IS_RUNNING = False
     clear_cursor_align_cache()
 
-    if cursor_align_rotation_handler not in bpy.app.handlers.depsgraph_update_post:
+    if (
+        cursor_align_rotation_handler
+        not in bpy.app.handlers.depsgraph_update_post
+    ):
         bpy.app.handlers.depsgraph_update_post.append(
             cursor_align_rotation_handler
         )
@@ -4787,7 +4788,7 @@ def register():
 
 
 def unregister():
-    """Unregister the addon classes and remove runtime WindowManager properties."""
+    """Unregister the add-on."""
     global _CURSOR_ALIGN_IS_RUNNING
 
     _unregister_keymaps()
@@ -4799,7 +4800,10 @@ def unregister():
             initialize_cursor_align_cache_after_register
         )
 
-    if cursor_align_rotation_handler in bpy.app.handlers.depsgraph_update_post:
+    if (
+        cursor_align_rotation_handler
+        in bpy.app.handlers.depsgraph_update_post
+    ):
         bpy.app.handlers.depsgraph_update_post.remove(
             cursor_align_rotation_handler
         )
