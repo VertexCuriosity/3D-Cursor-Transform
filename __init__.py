@@ -3616,128 +3616,171 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
 
 
 class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
-    """Hoverable free-rotation disc used to start trackball-style cursor rotation."""
+    """Free-rotation disc used to start trackball cursor rotation."""
+
     bl_idname = "CURSORTRANSFORM_GT_rotate_free_disc"
 
     def setup(self):
-        """
-        Build the cached filled-disc shape used for free-rotation hit testing and hover.
-        """
+        """Create the cached free-rotation disc shape."""
         if hasattr(self, "_shape"):
             return
 
         self._shape = self.new_custom_shape(
             'TRIS',
-            _build_circle_fan_vertices(radius=1.0, segments=48),
+            _build_circle_fan_vertices(
+                radius=1.0,
+                segments=48,
+            ),
         )
 
-    def draw(self, context):
+    def draw(self, _context):
         self.draw_custom_shape(self._shape)
 
-    def draw_select(self, context, select_id):
-        self.draw_custom_shape(self._shape, select_id=select_id)
+    def draw_select(self, _context, select_id):
+        self.draw_custom_shape(
+            self._shape,
+            select_id=select_id,
+        )
 
     def test_select(self, context, location):
-        """
-        Return a hit only inside the free-rotation disc and outside the move-center deadzone.
-        """
+        """Return a hit inside the rotation disc, excluding the center dead zone."""
         center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region, context.region_data, self.matrix_basis.translation
+            context.region,
+            context.region_data,
+            self.matrix_basis.translation,
         )
         if center_2d is None:
             return -1
 
         mouse = Vector(location)
-        dist = (mouse - center_2d).length
+        distance = (mouse - center_2d).length
 
-        outer_radius      = 75.0 * ROTATE_VIEW_RING_PIXEL_RADIUS * FREE_ROTATE_DISC_SCALE_FACTOR
-        move_center_radius = (
+        outer_radius = (
+            75.0
+            * ROTATE_VIEW_RING_PIXEL_RADIUS
+            * FREE_ROTATE_DISC_SCALE_FACTOR
+        )
+
+        deadzone_radius = (
             75.0
             * FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR
         )
 
-        if dist <= move_center_radius:
+        if distance <= deadzone_radius:
             return -1
-        if dist <= outer_radius:
+
+        if distance <= outer_radius:
             return 0
+
         return -1
 
 
 class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
-    """Filled rotation sector overlay used for active constrained rotation feedback."""
+    """Rotation sector overlay for constrained cursor rotation."""
+
     bl_idname = "CURSORTRANSFORM_GT_rotate_sector"
 
     def setup(self):
-        """
-        Build cached shapes that do not depend on the current drag angle.
-        """
+        """Create the cached full-sector shape."""
         if hasattr(self, "_full_sector_shape"):
             return
 
         self._full_sector_shape = self.new_custom_shape(
             'TRIS',
-            _build_sector_fan_vertices(0.0, math.tau, 64),
+            _build_sector_fan_vertices(
+                0.0,
+                math.tau,
+                ROTATE_SECTOR_STEPS,
+            ),
         )
 
-    def draw(self, context):
-        """
-        Draw the active rotation sector fill and its start/end radius markers.
-        """
+    def draw(self, _context):
+        """Draw the filled rotation sector and its radius markers."""
         start_angle = getattr(self, "start_angle", 0.0)
         total_angle = getattr(self, "total_angle", 0.0)
 
         start_width = float(getattr(self, "start_width", 1.0))
         end_width = float(getattr(self, "end_width", 1.0))
 
-        sign = 1.0 if total_angle >= 0.0 else -1.0
-        abs_angle = abs(total_angle)
+        direction = 1.0 if total_angle >= 0.0 else -1.0
+        absolute_angle = abs(total_angle)
 
-        full_turns = int(abs_angle // math.tau)
-        remainder = abs_angle - (full_turns * math.tau)
+        full_turns = int(absolute_angle // math.tau)
+        remaining_angle = (
+            absolute_angle
+            - (full_turns * math.tau)
+        )
 
-        radius_color = getattr(self, "radius_color", (1.0, 1.0, 1.0))
-        fill_alpha = float(getattr(self, "fill_alpha", 0.25))
+        radius_color = getattr(
+            self,
+            "radius_color",
+            (1.0, 1.0, 1.0),
+        )
+        fill_alpha = float(
+            getattr(self, "fill_alpha", 0.25)
+        )
 
-        old_color = self.color
-        old_alpha = self.alpha
+        original_color = self.color
+        original_alpha = self.alpha
 
-        # Draw the filled sector first so the radius markers remain visible on top.
         self.color = (1.0, 1.0, 1.0)
         self.alpha = fill_alpha
 
-        if full_turns > 0:
-            for _ in range(full_turns):
-                self.draw_custom_shape(self._full_sector_shape)
-
-        if remainder > 1e-6:
-            a1 = start_angle + (sign * remainder)
-            steps = max(12, int(ROTATE_SECTOR_STEPS * (remainder / math.tau)))
-            part_shape = self.new_custom_shape(
-                'TRIS',
-                _build_sector_fan_vertices(start_angle, a1, steps),
+        for _ in range(full_turns):
+            self.draw_custom_shape(
+                self._full_sector_shape
             )
-            self.draw_custom_shape(part_shape)
+
+        if remaining_angle > 1e-6:
+            end_angle = (
+                start_angle
+                + direction * remaining_angle
+            )
+
+            steps = max(
+                12,
+                int(
+                    ROTATE_SECTOR_STEPS
+                    * (remaining_angle / math.tau)
+                ),
+            )
+
+            partial_shape = self.new_custom_shape(
+                'TRIS',
+                _build_sector_fan_vertices(
+                    start_angle,
+                    end_angle,
+                    steps,
+                ),
+            )
+
+            self.draw_custom_shape(partial_shape)
 
         self.color = radius_color
         self.alpha = 1.0
 
         start_shape = self.new_custom_shape(
             'TRIS',
-            _build_radius_quad_vertices(start_angle, start_width),
+            _build_radius_quad_vertices(
+                start_angle,
+                start_width,
+            ),
         )
         self.draw_custom_shape(start_shape)
 
         end_shape = self.new_custom_shape(
             'TRIS',
-            _build_radius_quad_vertices(start_angle + total_angle, end_width),
+            _build_radius_quad_vertices(
+                start_angle + total_angle,
+                end_width,
+            ),
         )
         self.draw_custom_shape(end_shape)
 
-        self.color = old_color
-        self.alpha = old_alpha
+        self.color = original_color
+        self.alpha = original_alpha
 
-    def draw_select(self, context, select_id):
-        # This overlay is visual only and does not participate in selection.
+    def draw_select(self, _context, select_id):
         pass
 
 
