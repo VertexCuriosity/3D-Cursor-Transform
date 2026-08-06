@@ -210,6 +210,7 @@ def get_addon_preferences(context):
     addon = preferences.addons.get(__name__)
     return addon.preferences if addon else None
 
+
 def cursor_align_rotation_enabled(context):
     preferences = get_addon_preferences(context)
     return bool(
@@ -2120,12 +2121,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 )
                 _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
-                orientation_label = (
-                    get_orient_type(context).capitalize()
-                )
-                context.area.header_text_set(
-                    f"Rotation: {self._numeric_input}\u00b0  "
-                    f"{orientation_label}"
+                self._update_header_text(
+                    context,
+                    angle,
                 )
 
                 self._apply_rotation(
@@ -2436,7 +2434,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
                 context.area.header_text_set(
                     f"Trackball: [{self._numeric_input}] = "
-                    f"{typed_degrees:.2f}\u00b0  None"
+                    f"{typed_degrees:.2f}\u00b0"
                 )
 
                 tag_viewport_redraw(context)
