@@ -82,7 +82,7 @@ For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.
 
 Open **Edit → Preferences → Add-ons → 3D Cursor Transform** to access the add-on's preferences.
 
-### Align objects to the 3D cursor’s rotation
+### Match 3D Cursor Rotation
 When enabled, newly added objects and **Selection to Cursor** operations automatically match the 3D Cursor's rotation.
 
 This makes it easy to place objects directly onto sloped or angled surfaces without having to rotate them afterwards.
