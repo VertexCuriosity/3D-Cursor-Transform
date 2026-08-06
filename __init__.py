@@ -3477,94 +3477,142 @@ class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CURSORTRANSFORM_GT_filled_dot(bpy.types.Gizmo):
-    """Non-selectable filled dot used for active and ghost center markers."""
+    """Filled center marker used by active and ghost gizmos."""
+
     bl_idname = "CURSORTRANSFORM_GT_filled_dot"
 
     def setup(self):
-        """
-        Build the cached filled-circle shape used by the dot gizmo.
-        """
+        """Create the cached filled-circle shape."""
         if hasattr(self, "_shape"):
             return
 
         self._shape = self.new_custom_shape(
             'TRIS',
-            _build_circle_fan_vertices(radius=0.06, segments=24),
+            _build_circle_fan_vertices(
+                radius=0.06,
+                segments=24,
+            ),
         )
 
-    def draw(self, context):
+    def draw(self, _context):
         self.draw_custom_shape(self._shape)
 
-    def draw_select(self, context, select_id):
-        # Keep selection drawing valid even though the dot gizmo is used only as
-        # a visual marker.
-        self.draw_custom_shape(self._shape, select_id=select_id)
+    def draw_select(self, _context, select_id):
+        self.draw_custom_shape(
+            self._shape,
+            select_id=select_id,
+        )
 
 
 class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
-    """Square plane handle used for planar cursor translation and ghost previews."""
+    """Square handle used for planar translation and ghost previews."""
+
     bl_idname = "CURSORTRANSFORM_GT_plane_square"
 
     def setup(self):
-        """
-        Build the cached fill and outline shapes for the square plane handle.
-        """
+        """Create the cached fill and outline shapes."""
         if hasattr(self, "_fill_shape"):
             return
 
-        # Unit square in local XY plane, centered at origin.
-        s = 0.5
+        half_size = 0.5
 
-        fill_verts = [
-            (-s, -s, 0.0), ( s, -s, 0.0), ( s,  s, 0.0),
-            (-s, -s, 0.0), ( s,  s, 0.0), (-s,  s, 0.0),
+        fill_vertices = [
+            (-half_size, -half_size, 0.0),
+            (half_size, -half_size, 0.0),
+            (half_size, half_size, 0.0),
+            (-half_size, -half_size, 0.0),
+            (half_size, half_size, 0.0),
+            (-half_size, half_size, 0.0),
         ]
 
-        line_verts = [
-            (-s, -s, 0.0), ( s, -s, 0.0),
-            ( s, -s, 0.0), ( s,  s, 0.0),
-            ( s,  s, 0.0), (-s,  s, 0.0),
-            (-s,  s, 0.0), (-s, -s, 0.0),
+        outline_vertices = [
+            (-half_size, -half_size, 0.0),
+            (half_size, -half_size, 0.0),
+            (half_size, -half_size, 0.0),
+            (half_size, half_size, 0.0),
+            (half_size, half_size, 0.0),
+            (-half_size, half_size, 0.0),
+            (-half_size, half_size, 0.0),
+            (-half_size, -half_size, 0.0),
         ]
 
-        self._fill_shape = self.new_custom_shape('TRIS', fill_verts)
-        self._line_shape = self.new_custom_shape('LINES', line_verts)
+        self._fill_shape = self.new_custom_shape(
+            'TRIS',
+            fill_vertices,
+        )
+        self._outline_shape = self.new_custom_shape(
+            'LINES',
+            outline_vertices,
+        )
 
-    def draw(self, context):
-        """
-        Draw the plane handle with separate fill and outline alpha states.
-        """
-        fill_color = getattr(self, "fill_color", (1.0, 1.0, 1.0))
-        outline_color = getattr(self, "outline_color", fill_color)
-        fill_alpha = float(getattr(self, "fill_alpha", 0.18))
-        outline_alpha = float(getattr(self, "outline_alpha", 1.0))
-        fill_alpha_highlight = float(getattr(self, "fill_alpha_highlight", fill_alpha))
-        outline_alpha_highlight = float(getattr(self, "outline_alpha_highlight", outline_alpha))
+    def draw(self, _context):
+        """Draw the plane handle fill and outline."""
+        fill_color = getattr(
+            self,
+            "fill_color",
+            (1.0, 1.0, 1.0),
+        )
+        outline_color = getattr(
+            self,
+            "outline_color",
+            fill_color,
+        )
 
-        old_color = self.color
-        old_alpha = self.alpha
+        fill_alpha = float(
+            getattr(self, "fill_alpha", 0.18)
+        )
+        outline_alpha = float(
+            getattr(self, "outline_alpha", 1.0)
+        )
+        fill_highlight_alpha = float(
+            getattr(
+                self,
+                "fill_alpha_highlight",
+                fill_alpha,
+            )
+        )
+        outline_highlight_alpha = float(
+            getattr(
+                self,
+                "outline_alpha_highlight",
+                outline_alpha,
+            )
+        )
 
-        # Fill
+        original_color = self.color
+        original_alpha = self.alpha
+
         self.color = fill_color
-        self.alpha = fill_alpha_highlight if self.is_highlight else fill_alpha
+        self.alpha = (
+            fill_highlight_alpha
+            if self.is_highlight
+            else fill_alpha
+        )
         self.draw_custom_shape(self._fill_shape)
 
-        # Outline
         self.color = outline_color
-        self.alpha = outline_alpha_highlight if self.is_highlight else outline_alpha
+        self.alpha = (
+            outline_highlight_alpha
+            if self.is_highlight
+            else outline_alpha
+        )
 
         gpu.state.blend_set('ALPHA')
         gpu.state.line_width_set(PLANE_LINE_WIDTH)
-        self.draw_custom_shape(self._line_shape)
+
+        self.draw_custom_shape(self._outline_shape)
+
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
-        
-        self.color = old_color
-        self.alpha = old_alpha
 
-    def draw_select(self, context, select_id):
-        # Use the full quad for selection.
-        self.draw_custom_shape(self._fill_shape, select_id=select_id)
+        self.color = original_color
+        self.alpha = original_alpha
+
+    def draw_select(self, _context, select_id):
+        self.draw_custom_shape(
+            self._fill_shape,
+            select_id=select_id,
+        )
 
 
 class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
