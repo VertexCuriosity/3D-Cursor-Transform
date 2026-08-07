@@ -13,7 +13,10 @@ bl_info = {
     "version": (1, 0, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Cursor Tool",
-    "description": "Bring Blender's native transform system to the 3D Cursor with gizmos, constraints, and snapping.",
+    "description": (
+        "Bring Blender's native transform system to the 3D Cursor "
+        "with gizmos, constraints, and snapping."
+    ),
     "category": "3D View",
 }
 
@@ -1722,7 +1725,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._mmb_axis_dirs_2d = None
 
         return {'RUNNING_MODAL'}
-    
+
     def _remove_guide_handler(self):
         """Remove the guide handler and clear its cached state."""
         if getattr(self, "_guide_handler", None) is not None:
