@@ -91,11 +91,9 @@ This makes it easy to place objects directly onto sloped or angled surfaces with
 
 ## Limitations
 
-When moving the 3D Cursor, axis constraints always use the **Global** orientation. This is a limitation of Blender's current Python API, which does not expose the active transform orientation for translation.
+When the 3D Cursor gizmo is visible and another element in the scene is selected, Blender also displays the transform gizmo for that selection. This means two gizmos will be visible at the same time: Blender's selection gizmo and the add-on's 3D Cursor gizmo.
 
-Rotation constraints are unaffected and fully support Blender's available transform orientations.
-
-If Blender adds support for this in the future, the add-on will be updated accordingly.
+If you prefer a less cluttered viewport while using the 3D Cursor tool, simply deselect everything first.
 
 ## License
 
