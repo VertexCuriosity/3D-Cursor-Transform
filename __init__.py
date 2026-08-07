@@ -2511,16 +2511,25 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     release_confirm: bpy.props.BoolProperty(default=False)
+    axis: bpy.props.StringProperty(default="")
 
     def invoke(self, context, event):
         """Initialize the custom translation modal state."""
         cursor = context.scene.cursor
 
         if context.scene.tool_settings.use_snap:
-            bpy.ops.cursortransform.translate_free(
-                'INVOKE_DEFAULT',
-                release_confirm=False,
-            )
+            # Native operator combines axis constraints with snapping.
+            if self.axis in {"X", "Y", "Z"}:
+                bpy.ops.cursortransform.translate(
+                    'INVOKE_DEFAULT',
+                    axis=self.axis,
+                    release_confirm=False,
+                )
+            else:
+                bpy.ops.cursortransform.translate_free(
+                    'INVOKE_DEFAULT',
+                    release_confirm=False,
+                )
             return {'FINISHED'}
 
         self._initial_loc = cursor.location.copy()
@@ -2546,13 +2555,36 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         )
 
         window_manager = context.window_manager
-        window_manager.cursortransform_active_translate_axis = ""
 
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
         _TRANSLATE_GHOST_START_LOC = self._initial_loc.copy()
         _TRANSLATE_GHOST_START_ORIENT = None
+
+        if self.axis in {"X", "Y", "Z"}:
+            # Started from a gizmo drag with an axis already chosen.
+            # Use the click position as the mouse baseline immediately
+            # instead of waiting for the first move, so the cursor
+            # follows the drag from the initial click like a native
+            # gizmo would.
+            self._start_mouse = Vector((
+                event.mouse_region_x,
+                event.mouse_region_y,
+            ))
+            self._waiting_for_first_mousemove = False
+
+            self._axis = self.axis
+            self._cycle_state = 1
+
+            window_manager.cursortransform_active_translate_axis = (
+                self._axis
+            )
+            _TRANSLATE_GHOST_START_ORIENT = (
+                self._get_active_orient().copy()
+            )
+        else:
+            window_manager.cursortransform_active_translate_axis = ""
 
         self._axis_line_handler = (
             bpy.types.SpaceView3D.draw_handler_add(
@@ -3316,6 +3348,31 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
+    """Start the custom translation modal from a gizmo click."""
+
+    bl_idname = "cursortransform.translate_gizmo_start"
+    bl_label = "Cursor Translate (Gizmo Start)"
+    bl_options = {'INTERNAL'}
+
+    axis: bpy.props.StringProperty(default="")
+
+    @classmethod
+    def poll(cls, context):
+        """Run only while the 3D Cursor tool is active."""
+        return active_tool_is_cursor(context)
+
+    def invoke(self, context, _event):
+        """Hand off to the custom translation modal and finish."""
+        # Returning FINISHED here, rather than the modal's own return
+        # value, releases the gizmo's drag-tracking immediately.
+        bpy.ops.cursortransform.translate_modal(
+            'INVOKE_DEFAULT',
+            axis=self.axis,
+        )
+        return {'FINISHED'}
+
+
 class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
     """Move the 3D Cursor freely in the view plane."""
 
@@ -4047,7 +4104,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             )
 
             operator_properties = gizmo.target_set_operator(
-                "cursortransform.translate"
+                "cursortransform.translate_gizmo_start"
             )
             operator_properties.axis = axis
 
@@ -4979,6 +5036,7 @@ classes = (
     CURSORTRANSFORM_OT_rotate_free_modal,
     CURSORTRANSFORM_OT_translate_modal,
     CURSORTRANSFORM_OT_translate,
+    CURSORTRANSFORM_OT_translate_gizmo_start,
     CURSORTRANSFORM_OT_translate_free,
     CURSORTRANSFORM_OT_translate_plane,
     CURSORTRANSFORM_OT_rotate_x,
