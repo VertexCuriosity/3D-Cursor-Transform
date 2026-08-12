@@ -64,17 +64,17 @@ During a transformation, press **MMB** to pick an axis directly from the viewpor
 
 *[GIF showing axis picking]*
 
-### Precision and Snapping
-
-Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
-
-*[GIF showing precision and snapping]*
-
 ### Transform Gizmo
 
 Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo** to transform the 3D Cursor using Blender's familiar gizmo controls.
 
 *[Screenshot or GIF of the gizmo]*
+
+### Precision and Snapping
+
+Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
+
+*[GIF showing precision and snapping]*
 
 For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
