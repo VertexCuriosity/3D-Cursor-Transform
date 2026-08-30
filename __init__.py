@@ -598,6 +598,25 @@ def restore_cursor_rotation(cursor, rotation_mode, start_rotation):
         cursor.rotation_euler = start_rotation
 
 
+def reset_cursor_rotation(cursor):
+    """Reset the 3D Cursor rotation while preserving its rotation mode."""
+    rotation_mode = cursor.rotation_mode
+
+    if rotation_mode == 'QUATERNION':
+        cursor.rotation_quaternion = Quaternion(
+            (1.0, 0.0, 0.0, 0.0)
+        )
+    elif rotation_mode == 'AXIS_ANGLE':
+        cursor.rotation_axis_angle = (
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        )
+    else:
+        cursor.rotation_euler = (0.0, 0.0, 0.0)
+
+
 # ── Modal operation helpers ──────────────────────────────────────────────────
 
 def tag_viewport_redraw(context):
@@ -2505,6 +2524,39 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 # ─────────────────────────────────────────────────────────────────────────────
 # Translation and Wrapper Operators
 # ─────────────────────────────────────────────────────────────────────────────
+
+class CURSORTRANSFORM_OT_clear_transform(bpy.types.Operator):
+    """Clear the 3D Cursor location or rotation."""
+
+    bl_idname = "cursortransform.clear_transform"
+    bl_label = "Clear 3D Cursor Transform"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    mode: bpy.props.EnumProperty(
+        items=(
+            ('LOCATION', "Location", "Clear the 3D Cursor location"),
+            ('ROTATION', "Rotation", "Clear the 3D Cursor rotation"),
+        ),
+        default='LOCATION',
+        options={'HIDDEN'},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        """Run only while the 3D Cursor tool is active."""
+        return active_tool_is_cursor(context)
+
+    def execute(self, context):
+        cursor = context.scene.cursor
+
+        if self.mode == 'LOCATION':
+            cursor.location = (0.0, 0.0, 0.0)
+        elif self.mode == 'ROTATION':
+            reset_cursor_rotation(cursor)
+
+        tag_viewport_redraw(context)
+        return {'FINISHED'}
+
 
 class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     """Move the 3D Cursor using a custom keyboard translation modal."""
@@ -5037,6 +5089,7 @@ classes = (
     CURSORTRANSFORM_AddonPreferences,
     CURSORTRANSFORM_OT_rotate_modal,
     CURSORTRANSFORM_OT_rotate_free_modal,
+    CURSORTRANSFORM_OT_clear_transform,
     CURSORTRANSFORM_OT_translate_modal,
     CURSORTRANSFORM_OT_translate,
     CURSORTRANSFORM_OT_translate_gizmo_start,
@@ -5087,6 +5140,24 @@ def _register_keymaps():
     )
     _addon_keymaps.append((keymap, keymap_item))
 
+    keymap_item = keymap.keymap_items.new(
+        idname="cursortransform.clear_transform",
+        type='G',
+        value='PRESS',
+        alt=True,
+    )
+    keymap_item.properties.mode = 'LOCATION'
+    _addon_keymaps.append((keymap, keymap_item))
+
+    keymap_item = keymap.keymap_items.new(
+        idname="cursortransform.clear_transform",
+        type='R',
+        value='PRESS',
+        alt=True,
+    )
+    keymap_item.properties.mode = 'ROTATION'
+    _addon_keymaps.append((keymap, keymap_item))
+    
 
 def _unregister_keymaps():
     """Remove the add-on's registered shortcuts."""
