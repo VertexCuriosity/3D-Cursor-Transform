@@ -1,3 +1,4 @@
+![3D Cursor Transform](screenshots/thumbnail.png)
 # 3D Cursor Transform
 
 Bring Blender's full transform system to the 3D Cursor.
@@ -54,31 +55,29 @@ Select the **3D Cursor** tool and press **G** to move or **R** to rotate the 3D 
 
 Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R** to reset its rotation.
 
-*[GIF showing G, R, Alt + G, and Alt + R]*
+![3D Cursor rotation](screenshots/rotate.png)
 
 ### Constraints
 
 Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to cycle through the available transform orientations, or use **Shift + X**, **Y**, and **Z** for plane constraints.
 
-*[GIF showing constraints and orientation switching]*
+![3D Cursor transform orientation switching](screenshots/orientation-switch.png)
 
 ### Mouse Axis Selection
 
 During a transformation, press **MMB** to pick an axis directly from the viewport.
 
-*[GIF showing axis picking]*
+![3D Cursor middle mouse axis selection](screenshots/mm-axis-selection.png)
 
 ### Transform Gizmo
 
 Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo** to transform the 3D Cursor using Blender's familiar gizmo controls.
 
-*[Screenshot or GIF of the gizmo]*
+![3D Cursor transform gizmo](screenshots/gizmo.png)
 
 ### Precision and Snapping
 
 Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
-
-*[GIF showing precision and snapping]*
 
 For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
@@ -91,7 +90,7 @@ When enabled, newly added objects and **Selection to Cursor** operations automat
 
 This makes it easy to place objects directly onto sloped or angled surfaces without having to rotate them afterwards.
 
-*[GIF showing the preference and its effect]*
+![Match 3D Cursor Rotation preference](screenshots/preferences.png)
 
 ## Limitations
 
