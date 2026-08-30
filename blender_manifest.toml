@@ -6,7 +6,7 @@ name = "3D Cursor Transform"
 tagline = "Bring Blender's native transform system to the 3D Cursor"
 
 maintainer = "VertexCuriosity"
-website = "https://vertexcuriosity.com"
+website = "https://vertexcuriosity.com/addons-and-apps/blender-addons/3d-cursor-transform"
 
 type = "add-on"
 
