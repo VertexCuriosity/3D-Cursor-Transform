@@ -98,6 +98,10 @@ When the 3D Cursor gizmo is visible and another element in the scene is selected
 
 If you prefer a less cluttered viewport while using the 3D Cursor tool, simply deselect everything first.
 
+Currently, 3D Cursor Transform supports **Global** and **Local** transform orientations. Other transform orientations are not supported at this time, as I haven't found a practical use for them when transforming the 3D Cursor.
+
+If useful applications for other orientations come up in the future, I may add support for them as well.
+
 ## License
 
 3D Cursor Transform is licensed under the GPL-3.0-or-later.
