@@ -15,6 +15,8 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 ## Features
 
 - Move and rotate the 3D Cursor using Blender's familiar **G** and **R** shortcuts.
+- Reset the 3D Cursor's location and rotation using **Alt + G** and **Alt + R**.
+- Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
 - Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
 - Use **plane constraints** with **Shift + X**, **Y**, and **Z**.
 - Support for **numeric input** for precise transformations.
@@ -50,7 +52,9 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 
 Select the **3D Cursor** tool and press **G** to move or **R** to rotate the 3D Cursor.
 
-*[GIF showing G and R]*
+Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R** to reset its rotation.
+
+*[GIF showing G, R, Alt + G, and Alt + R]*
 
 ### Constraints
 
