@@ -1856,6 +1856,13 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._start_quat = get_cursor_quaternion(cursor)
         self._start_euler_compat = cursor.rotation_euler.copy()
 
+        # Refresh the transform bases so Local constraints match the
+        # cursor's current orientation when switching axes.
+        self._start_orient = build_orient_matrix(context).copy()
+        self._start_orient_alternate = (
+            build_alternate_orient_matrix(context).copy()
+        )
+
         self.axis = new_axis
         self._using_alternate_orient = use_alternate_orient
 
