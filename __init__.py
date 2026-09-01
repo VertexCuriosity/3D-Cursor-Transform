@@ -2610,6 +2610,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._precision_active = False
         self._precision_start_mouse = None
         self._precision_start_loc = None
+        
+        self._numeric_input = ""
+        self._numeric_active = False
 
         self._start_orient = build_orient_matrix(context).copy()
         self._start_orient_alternate = (
@@ -3075,6 +3078,18 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         return ray_origin + ray_direction * distance
 
+    def _apply_numeric_translation(self, context):
+        """Apply the current numeric translation."""
+        value = parse_numeric_input(self._numeric_input)
+
+        context.scene.cursor.location = (
+            self._start_loc
+            + self._start_orient.col[0].xyz * value
+        )
+
+        self._update_header_text(context)
+        tag_viewport_redraw(context)
+
     def _mouse_delta_2d(self, event):
         current_mouse = Vector((
             event.mouse_region_x,
@@ -3265,6 +3280,36 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         """Update cursor translation and handle modal input."""
         if (
             event.value == 'PRESS'
+            and self._axis == ""
+            and self._plane_exclude_axis == ""
+        ):
+            (
+                self._numeric_input,
+                self._numeric_active,
+                confirm,
+                consume,
+            ) = handle_numeric_key(
+                event.type,
+                self._numeric_input,
+                self._numeric_active,
+            )
+
+            if confirm and self._numeric_active:
+                self._finish(context)
+                return {'FINISHED'}
+
+            if consume:
+                if self._numeric_active:
+                    self._apply_numeric_translation(context)
+                else:
+                    context.scene.cursor.location = self._start_loc.copy()
+                    self._update_header_text(context)
+                    tag_viewport_redraw(context)
+
+                return {'RUNNING_MODAL'}
+        
+        if (
+            event.value == 'PRESS'
             and event.type == 'C'
             and not event.is_repeat
         ):
@@ -3326,6 +3371,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
+            if self._numeric_active:
+                return {'RUNNING_MODAL'}
+            
             if self._waiting_for_first_mousemove:
                 self._waiting_for_first_mousemove = False
                 self._start_mouse = Vector((
