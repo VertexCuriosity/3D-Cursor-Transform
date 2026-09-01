@@ -2148,7 +2148,14 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                         self._numeric_input
                     )
                 )
-                _ROTATE_GUIDE_TOTAL_ANGLE = angle
+
+                applied_angle = (
+                    -angle
+                    if self.axis == "VIEW"
+                    else angle
+                )
+
+                _ROTATE_GUIDE_TOTAL_ANGLE = applied_angle
 
                 self._update_header_text(
                     context,
@@ -2157,7 +2164,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
                 self._apply_rotation(
                     context,
-                    angle,
+                    applied_angle,
                 )
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
