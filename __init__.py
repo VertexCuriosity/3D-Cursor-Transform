@@ -3249,7 +3249,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
-        
         if (
             event.value == 'PRESS'
             and self._plane_exclude_axis == ""
@@ -3460,8 +3459,6 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
 
     def invoke(self, context, _event):
         """Hand off to the custom translation modal and finish."""
-        # Returning FINISHED here, rather than the modal's own return
-        # value, releases the gizmo's drag-tracking immediately.
         bpy.ops.cursortransform.translate_modal(
             'INVOKE_DEFAULT',
             axis=self.axis,
@@ -4281,7 +4278,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             'ALIGN_VIEW',
         }
         self.move_center.target_set_operator(
-            "cursortransform.translate_free"
+            "cursortransform.translate_gizmo_start"
         )
 
         # Blender draws gizmos in reverse registration order. Preserve this
