@@ -184,6 +184,7 @@ _CURSOR_ALIGN_IS_RUNNING = False
 # Translation modal state
 _TRANSLATE_GHOST_START_LOC = None
 _TRANSLATE_GHOST_START_ORIENT = None
+_TRANSLATE_ACTIVE_ORIENT = None
 
 # Rotation modal state
 _ROTATE_ACTIVE_ORIENT = None
@@ -2512,25 +2513,11 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     release_confirm: bpy.props.BoolProperty(default=False)
     axis: bpy.props.StringProperty(default="")
+    plane: bpy.props.StringProperty(default="")
 
     def invoke(self, context, event):
         """Initialize the custom translation modal state."""
         cursor = context.scene.cursor
-
-        if context.scene.tool_settings.use_snap:
-            # Native operator combines axis constraints with snapping.
-            if self.axis in {"X", "Y", "Z"}:
-                bpy.ops.cursortransform.translate(
-                    'INVOKE_DEFAULT',
-                    axis=self.axis,
-                    release_confirm=False,
-                )
-            else:
-                bpy.ops.cursortransform.translate_free(
-                    'INVOKE_DEFAULT',
-                    release_confirm=False,
-                )
-            return {'FINISHED'}
 
         self._initial_loc = cursor.location.copy()
         self._start_loc = self._initial_loc.copy()
@@ -2561,29 +2548,47 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         _TRANSLATE_GHOST_START_LOC = self._initial_loc.copy()
         _TRANSLATE_GHOST_START_ORIENT = None
+        _TRANSLATE_ACTIVE_ORIENT = None
 
-        if self.axis in {"X", "Y", "Z"}:
-            # Started from a gizmo drag with an axis already chosen.
-            # Use the click position as the mouse baseline immediately
-            # instead of waiting for the first move, so the cursor
-            # follows the drag from the initial click like a native
-            # gizmo would.
+        if (
+            self.axis in {"X", "Y", "Z"}
+            or self.plane in {"XY", "XZ", "YZ"}
+        ):
+            # Gizmo drags already have a constraint selected, so use the
+            # click position as the mouse baseline immediately.
             self._start_mouse = Vector((
                 event.mouse_region_x,
                 event.mouse_region_y,
             ))
             self._waiting_for_first_mousemove = False
 
-            self._axis = self.axis
             self._cycle_state = 1
 
-            window_manager.cursortransform_active_translate_axis = (
-                self._axis
-            )
+            if self.axis in {"X", "Y", "Z"}:
+                self._axis = self.axis
+                self._plane_exclude_axis = ""
+
+                window_manager.cursortransform_active_translate_axis = (
+                    self._axis
+                )
+            else:
+                self._axis = ""
+                self._plane_exclude_axis = (
+                    PLANE_NORMAL_AXIS[self.plane]
+                )
+
+                window_manager.cursortransform_active_translate_axis = (
+                    self.plane
+                )
+
             _TRANSLATE_GHOST_START_ORIENT = (
+                self._get_active_orient().copy()
+            )
+            _TRANSLATE_ACTIVE_ORIENT = (
                 self._get_active_orient().copy()
             )
         else:
@@ -2730,6 +2735,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _set_axis_cycle(self, context, event, axis):
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         self._ensure_start_mouse(event)
 
@@ -2753,8 +2759,12 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             _TRANSLATE_GHOST_START_ORIENT = (
                 self._get_active_orient().copy()
             )
+            _TRANSLATE_ACTIVE_ORIENT = (
+                self._get_active_orient().copy()
+            )
         else:
             _TRANSLATE_GHOST_START_ORIENT = None
+            _TRANSLATE_ACTIVE_ORIENT = None
 
         context.scene.cursor.location = self._mouse_to_location(
             context,
@@ -2767,6 +2777,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _set_plane_cycle(self, context, event, excluded_axis):
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         self._ensure_start_mouse(event)
 
@@ -2795,12 +2806,17 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             context.window_manager.cursortransform_active_translate_axis = (
                 plane
             )
+
             _TRANSLATE_GHOST_START_ORIENT = (
+                self._get_active_orient().copy()
+            )
+            _TRANSLATE_ACTIVE_ORIENT = (
                 self._get_active_orient().copy()
             )
         else:
             context.window_manager.cursortransform_active_translate_axis = ""
             _TRANSLATE_GHOST_START_ORIENT = None
+            _TRANSLATE_ACTIVE_ORIENT = None
 
         context.scene.cursor.location = self._mouse_to_location(
             context,
@@ -2877,6 +2893,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
                 'INVOKE_DEFAULT',
                 axis=axis,
                 release_confirm=False,
+                use_alternate_orient=self._using_alternate_orient,
             )
             return
 
@@ -2885,6 +2902,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
                 'INVOKE_DEFAULT',
                 plane=plane,
                 release_confirm=False,
+                use_alternate_orient=self._using_alternate_orient,
             )
             return
 
@@ -3210,11 +3228,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         """Clear translation modal state and restore the viewport UI."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         self._remove_axis_line_handler()
 
         _TRANSLATE_GHOST_START_LOC = None
         _TRANSLATE_GHOST_START_ORIENT = None
+        _TRANSLATE_ACTIVE_ORIENT = None
 
         context.window.cursor_modal_restore()
         context.window_manager.cursortransform_active_translate_axis = ""
@@ -3229,6 +3249,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
+        print(
+            "TRANSLATE EVENT:",
+            event.type,
+            "value =", event.value,
+            "shift =", event.shift,
+        )
+        
         if (
             event.value == 'PRESS'
             and self._plane_exclude_axis == ""
@@ -3286,9 +3313,14 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             and event.type == 'TAB'
             and event.shift
         ):
-            context.scene.tool_settings.use_snap = True
-            self._handoff_to_native_translate(context)
-            return {'FINISHED'}
+            tool_settings = context.scene.tool_settings
+            tool_settings.use_snap = not tool_settings.use_snap
+
+            if tool_settings.use_snap:
+                self._handoff_to_native_translate(context)
+                return {'FINISHED'}
+
+            return {'RUNNING_MODAL'}
 
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
@@ -3323,7 +3355,11 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         if event.type == 'MOUSEMOVE':
             if self._numeric_active:
                 return {'RUNNING_MODAL'}
-            
+
+            if context.scene.tool_settings.use_snap:
+                self._handoff_to_native_translate(context)
+                return {'FINISHED'}
+
             if self._waiting_for_first_mousemove:
                 self._waiting_for_first_mousemove = False
                 self._start_mouse = Vector((
@@ -3370,6 +3406,7 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
 
     axis: bpy.props.StringProperty(default="Z")
     release_confirm: bpy.props.BoolProperty(default=True)
+    use_alternate_orient: bpy.props.BoolProperty(default=False)
 
     @classmethod
     def poll(cls, context):
@@ -3381,8 +3418,12 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
-        orientation_matrix = build_orient_matrix(context)
-        orientation_type = get_orient_type(context)
+        if self.use_alternate_orient:
+            orientation_matrix = build_alternate_orient_matrix(context)
+            orientation_type = alternate_orient_label(context).upper()
+        else:
+            orientation_matrix = build_orient_matrix(context)
+            orientation_type = get_orient_type(context)
 
         context.window_manager.cursortransform_active_translate_axis = (
             self.axis
@@ -3416,6 +3457,7 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     axis: bpy.props.StringProperty(default="")
+    plane: bpy.props.StringProperty(default="")
 
     @classmethod
     def poll(cls, context):
@@ -3429,6 +3471,7 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
         bpy.ops.cursortransform.translate_modal(
             'INVOKE_DEFAULT',
             axis=self.axis,
+            plane=self.plane,
         )
         return {'FINISHED'}
 
@@ -3477,6 +3520,7 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
 
     plane: bpy.props.StringProperty(default="XY")
     release_confirm: bpy.props.BoolProperty(default=True)
+    use_alternate_orient: bpy.props.BoolProperty(default=False)
 
     @classmethod
     def poll(cls, context):
@@ -3488,8 +3532,12 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
-        orientation_matrix = build_orient_matrix(context)
-        orientation_type = get_orient_type(context)
+        if self.use_alternate_orient:
+            orientation_matrix = build_alternate_orient_matrix(context)
+            orientation_type = alternate_orient_label(context).upper()
+        else:
+            orientation_matrix = build_orient_matrix(context)
+            orientation_type = get_orient_type(context)
 
         context.window_manager.cursortransform_active_translate_axis = (
             self.plane
@@ -4176,7 +4224,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             gizmo = _new_plane_square(selectable=True)
 
             operator_properties = gizmo.target_set_operator(
-                "cursortransform.translate_plane"
+                "cursortransform.translate_modal"
             )
             operator_properties.plane = plane
 
@@ -4413,6 +4461,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         global _ROTATE_ACTIVE_VIEW
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
+        global _TRANSLATE_ACTIVE_ORIENT
 
         cursor_location = context.scene.cursor.location
 
@@ -4433,6 +4482,14 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
         window_manager = context.window_manager
         translate_running = translate_modal_running(context)
+
+        translate_basis = orientation
+
+        if (
+            translate_running
+            and _TRANSLATE_ACTIVE_ORIENT is not None
+        ):
+            translate_basis = _TRANSLATE_ACTIVE_ORIENT
 
         active_translate_axis = (
             window_manager.cursortransform_active_translate_axis
@@ -4534,8 +4591,14 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                     (0.0, 0.0, 1.35)
                 )
 
+            arrow_orientation = (
+                translate_basis
+                if is_active_axis
+                else orientation
+            )
+
             axis_vector = (
-                orientation
+                arrow_orientation
                 .col[AXIS_INDEX[axis]]
                 .to_3d()
             )
@@ -4554,7 +4617,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self._apply_arrow(
                 gizmo,
                 location_matrix
-                @ orientation
+                @ arrow_orientation
                 @ AXIS_ROT[axis],
                 1.05,
                 arrow_length,
@@ -4576,6 +4639,12 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                 and active_translate_axis == plane
             )
 
+            plane_orientation = (
+                translate_basis
+                if is_active_plane
+                else orientation
+            )
+
             gizmo.hide = (
                 not show_move_planes
                 or rotate_running
@@ -4590,8 +4659,9 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
             normal_axis = PLANE_NORMAL_AXIS[plane]
             plane_color = axis_colors[normal_axis]
+            
             plane_normal = (
-                orientation
+                plane_orientation
                 .col[AXIS_INDEX[normal_axis]]
                 .to_3d()
             )
@@ -4620,7 +4690,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
             self._apply_plane_square(
                 gizmo,
-                location_matrix @ orientation,
+                location_matrix @ plane_orientation,
                 (
                     Matrix.Translation(
                         PLANE_OFFSET[plane]
