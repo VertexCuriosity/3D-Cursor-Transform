@@ -1286,36 +1286,6 @@ def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
     return math.atan2(coefficient_y, coefficient_x)
 
 
-def _map_to_arcball(center_2d, mouse_2d, radius_pixels):
-    """
-    Map a screen-space mouse position to a virtual unit sphere.
-
-    Positions outside the sphere are projected onto its rim.
-    """
-    if (
-        center_2d is None
-        or mouse_2d is None
-        or radius_pixels <= 1e-6
-    ):
-        return None
-
-    x = (mouse_2d.x - center_2d.x) / radius_pixels
-    y = (mouse_2d.y - center_2d.y) / radius_pixels
-    distance_squared = x * x + y * y
-
-    if distance_squared <= 1.0:
-        z = math.sqrt(1.0 - distance_squared)
-        return Vector((x, y, z)).normalized()
-
-    inverse_length = 1.0 / math.sqrt(distance_squared)
-
-    return Vector((
-        x * inverse_length,
-        y * inverse_length,
-        0.0,
-    )).normalized()
-
-
 # ── Screen-space projection helpers ──────────────────────────────────────────
 
 def _build_screen_space_ring_basis(
@@ -3050,9 +3020,22 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         """Apply the current numeric translation."""
         value = parse_numeric_input(self._numeric_input)
 
+        if self._axis in {"X", "Y", "Z"}:
+            axis_vector = self._get_axis_vector()
+
+            if axis_vector is None:
+                return
+        else:
+            axis_vector = (
+                self._start_orient
+                .col[0]
+                .to_3d()
+                .normalized()
+            )
+
         context.scene.cursor.location = (
             self._start_loc
-            + self._start_orient.col[0].xyz * value
+            + axis_vector * value
         )
 
         self._update_header_text(context)
@@ -3248,7 +3231,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         """Update cursor translation and handle modal input."""
         if (
             event.value == 'PRESS'
-            and self._axis == ""
             and self._plane_exclude_axis == ""
         ):
             (
