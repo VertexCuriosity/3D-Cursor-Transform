@@ -2516,7 +2516,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     plane: bpy.props.StringProperty(default="")
 
     def invoke(self, context, event):
-        """Initialize the custom translation modal state."""
+        """Initialize the custom translation modal state."""        
         cursor = context.scene.cursor
 
         self._initial_loc = cursor.location.copy()
@@ -4277,9 +4277,12 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             'FILL_SELECT',
             'ALIGN_VIEW',
         }
-        self.move_center.target_set_operator(
+
+        operator_properties = self.move_center.target_set_operator(
             "cursortransform.translate_gizmo_start"
         )
+        operator_properties.axis = ""
+        operator_properties.plane = ""
 
         # Blender draws gizmos in reverse registration order. Preserve this
         # order so ticks appear above rings, sectors, and axis lines.
