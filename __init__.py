@@ -3249,12 +3249,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
-        print(
-            "TRANSLATE EVENT:",
-            event.type,
-            "value =", event.value,
-            "shift =", event.shift,
-        )
         
         if (
             event.value == 'PRESS'
