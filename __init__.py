@@ -2539,6 +2539,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._numeric_input = ""
         self._numeric_active = False
 
+        self._plane_numeric_inputs = ["", ""]
+        self._plane_numeric_component = 0
+
         self._start_orient = build_orient_matrix(context).copy()
         self._start_orient_alternate = (
             build_alternate_orient_matrix(context).copy()
@@ -3036,25 +3039,61 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _apply_numeric_translation(self, context):
         """Apply the current numeric translation."""
-        value = parse_numeric_input(self._numeric_input)
+        if self._plane_exclude_axis in {"X", "Y", "Z"}:
+            plane_axes = [
+                axis
+                for axis in ("X", "Y", "Z")
+                if axis != self._plane_exclude_axis
+            ]
 
-        if self._axis in {"X", "Y", "Z"}:
-            axis_vector = self._get_axis_vector()
+            orientation = self._get_active_orient()
 
-            if axis_vector is None:
-                return
-        else:
-            axis_vector = (
-                self._start_orient
-                .col[0]
+            first_vector = (
+                orientation
+                .col[AXIS_INDEX[plane_axes[0]]]
+                .to_3d()
+                .normalized()
+            )
+            second_vector = (
+                orientation
+                .col[AXIS_INDEX[plane_axes[1]]]
                 .to_3d()
                 .normalized()
             )
 
-        context.scene.cursor.location = (
-            self._start_loc
-            + axis_vector * value
-        )
+            first_value = parse_numeric_input(
+                self._plane_numeric_inputs[0]
+            )
+            second_value = parse_numeric_input(
+                self._plane_numeric_inputs[1]
+            )
+
+            context.scene.cursor.location = (
+                self._start_loc
+                + first_vector * first_value
+                + second_vector * second_value
+            )
+
+        else:
+            value = parse_numeric_input(self._numeric_input)
+
+            if self._axis in {"X", "Y", "Z"}:
+                axis_vector = self._get_axis_vector()
+
+                if axis_vector is None:
+                    return
+            else:
+                axis_vector = (
+                    self._start_orient
+                    .col[0]
+                    .to_3d()
+                    .normalized()
+                )
+
+            context.scene.cursor.location = (
+                self._start_loc
+                + axis_vector * value
+            )
 
         self._update_header_text(context)
         tag_viewport_redraw(context)
@@ -3249,34 +3288,83 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
-        if (
-            event.value == 'PRESS'
-            and self._plane_exclude_axis == ""
-        ):
-            (
-                self._numeric_input,
-                self._numeric_active,
-                confirm,
-                consume,
-            ) = handle_numeric_key(
-                event.type,
-                self._numeric_input,
-                self._numeric_active,
-            )
+        if event.value == 'PRESS':
+            if (
+                event.type == 'TAB'
+                and not event.shift
+                and self._plane_exclude_axis in {"X", "Y", "Z"}
+                and self._numeric_active
+            ):
+                self._plane_numeric_component = (
+                    1 - self._plane_numeric_component
+                )
 
-            if confirm and self._numeric_active:
-                self._finish(context)
-                return {'FINISHED'}
-
-            if consume:
-                if self._numeric_active:
-                    self._apply_numeric_translation(context)
-                else:
-                    context.scene.cursor.location = self._start_loc.copy()
-                    self._update_header_text(context)
-                    tag_viewport_redraw(context)
+                self._update_header_text(context)
+                tag_viewport_redraw(context)
 
                 return {'RUNNING_MODAL'}
+
+            if self._plane_exclude_axis in {"X", "Y", "Z"}:
+                component = self._plane_numeric_component
+
+                (
+                    self._plane_numeric_inputs[component],
+                    component_active,
+                    confirm,
+                    consume,
+                ) = handle_numeric_key(
+                    event.type,
+                    self._plane_numeric_inputs[component],
+                    (
+                        self._plane_numeric_inputs[component]
+                        not in {"", "-"}
+                    ),
+                )
+
+                self._numeric_active = any(
+                    value not in {"", "-"}
+                    for value in self._plane_numeric_inputs
+                )
+
+                if confirm and self._numeric_active:
+                    self._finish(context)
+                    return {'FINISHED'}
+
+                if consume:
+                    if self._numeric_active:
+                        self._apply_numeric_translation(context)
+                    else:
+                        context.scene.cursor.location = self._start_loc.copy()
+                        self._update_header_text(context)
+                        tag_viewport_redraw(context)
+
+                    return {'RUNNING_MODAL'}
+
+            else:
+                (
+                    self._numeric_input,
+                    self._numeric_active,
+                    confirm,
+                    consume,
+                ) = handle_numeric_key(
+                    event.type,
+                    self._numeric_input,
+                    self._numeric_active,
+                )
+
+                if confirm and self._numeric_active:
+                    self._finish(context)
+                    return {'FINISHED'}
+
+                if consume:
+                    if self._numeric_active:
+                        self._apply_numeric_translation(context)
+                    else:
+                        context.scene.cursor.location = self._start_loc.copy()
+                        self._update_header_text(context)
+                        tag_viewport_redraw(context)
+
+                    return {'RUNNING_MODAL'}
         
         if (
             event.value == 'PRESS'
