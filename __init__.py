@@ -192,6 +192,7 @@ _ROTATE_ACTIVE_VIEW = None
 _ROTATE_GUIDE_START_ANGLE = 0.0
 _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
 _ROTATE_GUIDE_CTRL_PRESSED = False
+_ROTATE_TRACKBALL_HANDOFF = None
 
 # MMB axis-pickup state
 _ROTATE_MMB_HELD = False
@@ -2164,13 +2165,31 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     def _swap_to_trackball(self, context):
         """Switch from constrained rotation to trackball rotation."""
         global _ROTATE_PREVIOUS_AXIS
+        global _ROTATE_TRACKBALL_HANDOFF
 
         previous_axis = self.axis
+
+        _ROTATE_TRACKBALL_HANDOFF = {
+            "rot_mode": self._rot_mode,
+            "start_rot": (
+                self._start_rot.copy()
+                if hasattr(self._start_rot, "copy")
+                else self._start_rot
+            ),
+            "start_quat": self._start_quat.copy(),
+            "start_euler_compat": self._start_euler_compat.copy(),
+            "start_mouse_2d": self._guide_start_mouse_2d.copy(),
+        }
+
+        restore_cursor_rotation(
+            context.scene.cursor,
+            self._rot_mode,
+            self._start_rot,
+        )
 
         self._remove_guide_handler()
         cleanup_rotation_modal(context)
 
-        # Restore the value cleared by the normal modal cleanup path.
         _ROTATE_PREVIOUS_AXIS = previous_axis
 
         bpy.ops.cursortransform.rotate_free_modal(
@@ -2450,19 +2469,31 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         cursor = context.scene.cursor
         window_manager = context.window_manager
 
-        rotation_state = cache_cursor_rotation_state(cursor)
-        self._rot_mode = rotation_state["rot_mode"]
-        self._start_rot = rotation_state["start_rot"]
-        self._start_quat = rotation_state["start_quat"]
-        self._start_euler_compat = rotation_state["start_euler_compat"]
+        global _ROTATE_TRACKBALL_HANDOFF
+
+        handoff = _ROTATE_TRACKBALL_HANDOFF
+        _ROTATE_TRACKBALL_HANDOFF = None
+
+        if handoff is not None:
+            self._rot_mode = handoff["rot_mode"]
+            self._start_rot = handoff["start_rot"]
+            self._start_quat = handoff["start_quat"]
+            self._start_euler_compat = handoff["start_euler_compat"]
+            self._start_mouse_2d = handoff["start_mouse_2d"]
+        else:
+            rotation_state = cache_cursor_rotation_state(cursor)
+            self._rot_mode = rotation_state["rot_mode"]
+            self._start_rot = rotation_state["start_rot"]
+            self._start_quat = rotation_state["start_quat"]
+            self._start_euler_compat = rotation_state["start_euler_compat"]
+
+            self._start_mouse_2d = Vector((
+                event.mouse_region_x,
+                event.mouse_region_y,
+            ))
 
         self._start_loc = cursor.matrix.translation.copy()
         self._start_view = get_view_rot_matrix(context).copy()
-
-        self._start_mouse_2d = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
         self._previous_mouse_2d = self._start_mouse_2d.copy()
         self._mouse_accum = Vector((0.0, 0.0))
 
@@ -2520,8 +2551,8 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             context.region_data.perspective_matrix.inverted()
         )
 
-        axis_x = perspective_inverse[0].xyz.normalized()
-        axis_y = perspective_inverse[1].xyz.normalized()
+        axis_x = perspective_inverse.col[0].to_3d().normalized()
+        axis_y = perspective_inverse.col[1].to_3d().normalized()
 
         axis = (
             axis_x * phi.x
