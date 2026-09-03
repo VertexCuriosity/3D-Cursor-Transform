@@ -7,25 +7,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # -----------------------------------------------------------------------------
 
-bl_info = {
-    "name": "3D Cursor Transform",
-    "author": "VertexCuriosity",
-    "version": (1, 0, 0),
-    "blender": (4, 5, 0),
-    "location": "View3D > Cursor Tool",
-    "description": (
-        "Bring Blender's native transform system to the 3D Cursor "
-        "with gizmos, constraints, and snapping."
-    ),
-    "category": "3D View",
-}
-
-
 import math
 
 import bpy
 import gpu
-from bpy.app.handlers import persistent
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Quaternion, Vector
@@ -99,9 +84,6 @@ _NUMERIC_DIGIT_MAP = {
     'NUMPAD_8': '8', 'NUMPAD_9': '9',
 }
 
-# Cursor alignment
-CURSOR_ALIGN_LOCATION_EPSILON = 1e-5
-
 # Shared gizmo opacity
 AXIS_IDLE_ALPHA = 0.5
 AXIS_ACTIVE_ALPHA = 1.0
@@ -174,13 +156,6 @@ ROTATE_VIEW_TICK_WIDTH_PX = 1.0
 
 # ── Runtime state ────────────────────────────────────────────────────────────
 
-# 3D Cursor alignment tracking
-_CURSOR_ALIGN_KNOWN_OBJECTS = set()
-_CURSOR_ALIGN_LAST_LOCATIONS = {}
-_CURSOR_ALIGN_SCENE_POINTER = None
-_CURSOR_ALIGN_INITIALIZED = False
-_CURSOR_ALIGN_IS_RUNNING = False
-
 # Translation modal state
 _TRANSLATE_GHOST_START_LOC = None
 _TRANSLATE_GHOST_START_ORIENT = None
@@ -212,188 +187,20 @@ def get_addon_preferences(context):
     if preferences is None:
         return None
 
-    addon = preferences.addons.get(__name__)
+    addon = preferences.addons.get(__package__)
     return addon.preferences if addon else None
 
+def update_cursor_align_preference(preferences, context):
+    """Use Blender's native new-object alignment setting."""
+    edit = context.preferences.edit
 
-def cursor_align_rotation_enabled(context):
-    preferences = get_addon_preferences(context)
-    return bool(
-        preferences
-        and preferences.align_added_snapped_to_cursor_rotation
-    )
+    if preferences.align_added_snapped_to_cursor_rotation:
+        if edit.object_align != 'CURSOR':
+            preferences.previous_object_align = edit.object_align
 
-
-def clear_cursor_align_cache():
-    """Clear the cached cursor-alignment state."""
-    global _CURSOR_ALIGN_SCENE_POINTER
-    global _CURSOR_ALIGN_INITIALIZED
-
-    _CURSOR_ALIGN_KNOWN_OBJECTS.clear()
-    _CURSOR_ALIGN_LAST_LOCATIONS.clear()
-
-    _CURSOR_ALIGN_SCENE_POINTER = None
-    _CURSOR_ALIGN_INITIALIZED = False
-
-
-def initialize_cursor_align_cache(scene):
-    """Cache the objects and their locations without modifying them."""
-    global _CURSOR_ALIGN_SCENE_POINTER
-    global _CURSOR_ALIGN_INITIALIZED
-
-    current_objects = set(scene.objects)
-
-    _CURSOR_ALIGN_KNOWN_OBJECTS.clear()
-    _CURSOR_ALIGN_KNOWN_OBJECTS.update(current_objects)
-
-    _CURSOR_ALIGN_LAST_LOCATIONS.clear()
-    for obj in current_objects:
-        _CURSOR_ALIGN_LAST_LOCATIONS[obj] = (
-            obj.matrix_world.translation.copy()
-        )
-
-    _CURSOR_ALIGN_SCENE_POINTER = scene.as_pointer()
-    _CURSOR_ALIGN_INITIALIZED = True
-
-
-def initialize_cursor_align_cache_after_register():
-    """
-    Initialize cursor-alignment tracking after Blender has restored
-    access to the active context following add-on registration.
-    """
-    context = bpy.context
-    scene = getattr(context, "scene", None)
-
-    if scene is None:
-        # Try again shortly if Blender has not restored the active scene yet.
-        return 0.1
-
-    if cursor_align_rotation_enabled(context):
-        initialize_cursor_align_cache(scene)
+        edit.object_align = 'CURSOR'
     else:
-        clear_cursor_align_cache()
-
-    return None
-
-
-def update_cursor_align_preference(_preferences, context):
-    """
-    Initialize tracking immediately when cursor alignment is enabled,
-    and discard it when the option is disabled.
-    """
-    scene = getattr(context, "scene", None)
-
-    if scene is None:
-        clear_cursor_align_cache()
-        return
-
-    if cursor_align_rotation_enabled(context):
-        initialize_cursor_align_cache(scene)
-    else:
-        clear_cursor_align_cache()
-
-
-def object_is_at_cursor_location(obj, cursor):
-    distance = (
-        obj.matrix_world.translation
-        - cursor.location
-    ).length
-
-    return distance <= CURSOR_ALIGN_LOCATION_EPSILON
-
-
-def align_object_rotation_to_cursor(obj, cursor):
-    """
-    Match an object's world rotation to the 3D Cursor while preserving
-    its world location and scale.
-    """
-    location = obj.matrix_world.to_translation()
-    scale = obj.matrix_world.to_scale()
-
-    rotation = cursor.matrix.copy()
-    rotation.translation = (0.0, 0.0, 0.0)
-
-    obj.matrix_world = (
-        Matrix.Translation(location)
-        @ rotation
-        @ Matrix.Diagonal((scale.x, scale.y, scale.z, 1.0))
-    )
-
-
-@persistent
-def cursor_align_rotation_handler(scene, _depsgraph):
-    """
-    Match the rotation of objects added at or moved to the 3D Cursor
-    when the alignment preference is enabled.
-    """
-    global _CURSOR_ALIGN_IS_RUNNING
-
-    if _CURSOR_ALIGN_IS_RUNNING:
-        return
-
-    context = bpy.context
-
-    # Avoid tracking scene objects while the feature is disabled.
-    if not cursor_align_rotation_enabled(context):
-        if _CURSOR_ALIGN_INITIALIZED:
-            clear_cursor_align_cache()
-        return
-
-    scene_pointer = scene.as_pointer()
-
-    # Initialize safely after loading or entering a different scene.
-    if (
-        not _CURSOR_ALIGN_INITIALIZED
-        or _CURSOR_ALIGN_SCENE_POINTER != scene_pointer
-    ):
-        initialize_cursor_align_cache(scene)
-        return
-
-    current_objects = set(scene.objects)
-    new_objects = current_objects - _CURSOR_ALIGN_KNOWN_OBJECTS
-    cursor = scene.cursor
-
-    _CURSOR_ALIGN_IS_RUNNING = True
-
-    try:
-        for obj in current_objects:
-            previous_location = _CURSOR_ALIGN_LAST_LOCATIONS.get(obj)
-            current_location = obj.matrix_world.translation.copy()
-
-            location_changed = (
-                previous_location is not None
-                and (
-                    current_location - previous_location
-                ).length > CURSOR_ALIGN_LOCATION_EPSILON
-            )
-
-            added_at_cursor = (
-                obj in new_objects
-                and object_is_at_cursor_location(obj, cursor)
-            )
-
-            moved_to_cursor = (
-                location_changed
-                and object_is_at_cursor_location(obj, cursor)
-            )
-
-            if added_at_cursor or moved_to_cursor:
-                align_object_rotation_to_cursor(obj, cursor)
-
-            _CURSOR_ALIGN_LAST_LOCATIONS[obj] = (
-                obj.matrix_world.translation.copy()
-            )
-
-        _CURSOR_ALIGN_KNOWN_OBJECTS.clear()
-        _CURSOR_ALIGN_KNOWN_OBJECTS.update(current_objects)
-
-        # Remove deleted objects from the location cache.
-        for obj in tuple(_CURSOR_ALIGN_LAST_LOCATIONS):
-            if obj not in current_objects:
-                del _CURSOR_ALIGN_LAST_LOCATIONS[obj]
-
-    finally:
-        _CURSOR_ALIGN_IS_RUNNING = False
+        edit.object_align = preferences.previous_object_align
 
 
 # ── Context, viewport, and modal state ───────────────────────────────────────
@@ -648,43 +455,6 @@ def cleanup_rotation_modal(context):
         context.workspace.status_text_set(None)
 
     tag_viewport_redraw(context)
-
-
-def handle_numeric_key(key, numeric_input, numeric_active):
-    """
-    Process a keypress for modal numeric input.
-
-    Return the updated input, active state, confirmation state,
-    and whether the key was consumed.
-    """
-    if key in _NUMERIC_DIGIT_MAP:
-        return numeric_input + _NUMERIC_DIGIT_MAP[key], True, False, True
-
-    if key in {'PERIOD', 'NUMPAD_PERIOD'}:
-        if '.' not in numeric_input:
-            return numeric_input + '.', True, False, True
-
-        return numeric_input, numeric_active, False, True
-
-    if key in {'MINUS', 'NUMPAD_MINUS'}:
-        if numeric_input.startswith('-'):
-            return numeric_input[1:], True, False, True
-
-        return '-' + numeric_input, True, False, True
-
-    if key == 'BACK_SPACE' and numeric_active:
-        updated_input = numeric_input[:-1]
-
-        if updated_input in ('', '-'):
-            return '', False, False, True
-
-        return updated_input, True, False, True
-
-    if key in {'RET', 'NUMPAD_ENTER'}:
-        return numeric_input, numeric_active, True, True
-
-    return numeric_input, numeric_active, False, False
-
 
 def parse_numeric_input(numeric_input):
     """Convert modal numeric input to a float."""
@@ -1568,14 +1338,16 @@ def _rotate_guide_draw_op(operator):
 class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
     """Preferences for the 3D Cursor Transform add-on."""
 
-    bl_idname = __name__
+    bl_idname = __package__
+
+    previous_object_align: bpy.props.StringProperty(
+        default="WORLD",
+        options={'HIDDEN'},
+    )
 
     align_added_snapped_to_cursor_rotation: bpy.props.BoolProperty(
         name="Match 3D Cursor Rotation",
-        description=(
-            "Objects added at or snapped to the 3D Cursor "
-            "will also match its rotation"
-        ),
+        description="Align newly added objects to the 3D Cursor rotation",
         default=False,
         update=update_cursor_align_preference,
     )
@@ -3109,6 +2881,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     def _clear_constraints(self, context, event):
         """Clear the active axis or plane constraint."""
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         self._ensure_start_mouse(event)
 
@@ -3119,6 +2892,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         context.window_manager.cursortransform_active_translate_axis = ""
         _TRANSLATE_GHOST_START_ORIENT = None
+        _TRANSLATE_ACTIVE_ORIENT = None
 
         context.scene.cursor.location = self._mouse_to_location(
             context,
@@ -3220,6 +2994,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _set_axis_from_mmb(self, context, event, axis):
         global _TRANSLATE_GHOST_START_ORIENT
+        global _TRANSLATE_ACTIVE_ORIENT
 
         self._axis = axis
         self._plane_exclude_axis = ""
@@ -3231,10 +3006,11 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             self._get_active_orient().copy()
         )
 
-        context.scene.cursor.location = self._mouse_to_location(
-            context,
-            event,
+        _TRANSLATE_ACTIVE_ORIENT = (
+            self._get_active_orient().copy()
         )
+
+        context.scene.cursor.location = self._mouse_to_location(context, event)
 
         self._update_header_text(context)
         self._update_status_bar(context)
@@ -5544,7 +5320,6 @@ def _unregister_keymaps():
 
 def register():
     """Register the add-on."""
-    global _CURSOR_ALIGN_IS_RUNNING
 
     for cls in classes:
         bpy.utils.register_class(cls)
@@ -5563,51 +5338,23 @@ def register():
         )
     )
 
-    _CURSOR_ALIGN_IS_RUNNING = False
-    clear_cursor_align_cache()
-
-    if (
-        cursor_align_rotation_handler
-        not in bpy.app.handlers.depsgraph_update_post
-    ):
-        bpy.app.handlers.depsgraph_update_post.append(
-            cursor_align_rotation_handler
-        )
-
-    if not bpy.app.timers.is_registered(
-        initialize_cursor_align_cache_after_register
-    ):
-        bpy.app.timers.register(
-            initialize_cursor_align_cache_after_register,
-            first_interval=0.0,
-        )
-
     _register_keymaps()
 
 
 def unregister():
     """Unregister the add-on."""
-    global _CURSOR_ALIGN_IS_RUNNING
 
-    _unregister_keymaps()
-
-    if bpy.app.timers.is_registered(
-        initialize_cursor_align_cache_after_register
-    ):
-        bpy.app.timers.unregister(
-            initialize_cursor_align_cache_after_register
-        )
+    preferences = get_addon_preferences(bpy.context)
 
     if (
-        cursor_align_rotation_handler
-        in bpy.app.handlers.depsgraph_update_post
+        preferences
+        and preferences.align_added_snapped_to_cursor_rotation
     ):
-        bpy.app.handlers.depsgraph_update_post.remove(
-            cursor_align_rotation_handler
+        bpy.context.preferences.edit.object_align = (
+            preferences.previous_object_align
         )
 
-    clear_cursor_align_cache()
-    _CURSOR_ALIGN_IS_RUNNING = False
+    _unregister_keymaps()
 
     if hasattr(
         bpy.types.WindowManager,
