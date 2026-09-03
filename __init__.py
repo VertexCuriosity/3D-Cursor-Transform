@@ -1920,8 +1920,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         window_manager.cursortransform_active_rotate_axis = self.axis
         window_manager.modal_handler_add(self)
 
-        self._numeric_input = ""
-        self._numeric_active = False
+        self._numeric = NumericInputState(component_count=1)
 
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
@@ -1990,30 +1989,32 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             .normalized()
         )
 
+    def _format_angle(self, value):
+        return f"{value:g}\u00b0"
+
     def _update_header_text(self, context, angle):
         """Update the rotation value shown in the viewport header."""
-        degrees = math.degrees(angle)
+        if self._numeric.active:
+            angle_text = self._numeric.display_text(0, self._format_angle)
+        else:
+            angle_text = self._format_angle(math.degrees(angle))
 
         if self.axis == "VIEW":
             context.area.header_text_set(
-                f"Rotation: {degrees:.2f}\u00b0"
+                f"Rotation: {angle_text}"
             )
             return
 
         if self._using_alternate_orient:
-            orientation_label = (
-                alternate_orient_label(context).lower()
-            )
+            orientation_label = alternate_orient_label(context).lower()
         else:
-            orientation_label = (
-                get_orient_type(context).lower()
-            )
+            orientation_label = get_orient_type(context).lower()
 
         context.area.header_text_set(
-            f"Rotation: {degrees:.2f}\u00b0 "
+            f"Rotation: {angle_text} "
             f"along {orientation_label} {self.axis}"
         )
-
+    
     def _switch_axis_constraint(
         self,
         context,
@@ -2275,16 +2276,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         if event.value == 'PRESS':
             key = event.type
 
-            (
-                self._numeric_input,
-                self._numeric_active,
-                confirm,
-                consume,
-            ) = handle_numeric_key(
-                key,
-                self._numeric_input,
-                self._numeric_active,
-            )
+            confirm, consume = self._numeric.handle_key(event)
 
             if confirm:
                 self._remove_guide_handler()
@@ -2325,12 +2317,8 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 self._swap_to_trackball(context)
                 return {'FINISHED'}
 
-            if self._numeric_active:
-                angle = math.radians(
-                    parse_numeric_input(
-                        self._numeric_input
-                    )
-                )
+            if self._numeric.active:
+                angle = math.radians(self._numeric.value())
 
                 applied_angle = (
                     -angle
@@ -2340,15 +2328,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
                 _ROTATE_GUIDE_TOTAL_ANGLE = applied_angle
 
-                self._update_header_text(
-                    context,
-                    angle,
-                )
+                self._update_header_text(context, angle)
+                self._apply_rotation(context, applied_angle)
 
-                self._apply_rotation(
-                    context,
-                    applied_angle,
-                )
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
@@ -2357,7 +2339,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
-                if not self._numeric_active:
+                if not self._numeric.active:
                     self._enter_mmb_pickup(context)
 
                 return {'RUNNING_MODAL'}
@@ -2493,8 +2475,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         context.workspace.status_text_set(draw_status_rotate_free)
         window_manager.modal_handler_add(self)
 
-        self._numeric_input = ""
-        self._numeric_active = False
+        self._numeric = NumericInputState(component_count=2)
 
         return {'RUNNING_MODAL'}
 
@@ -2517,6 +2498,21 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             return
 
         bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
+
+    def _format_angle(self, value):
+        return f"{value:g}\u00b0"
+
+    def _update_header_text(self, context, phi):
+        if self._numeric.active:
+            first_text = self._numeric.display_text(0, self._format_angle)
+            second_text = self._numeric.display_text(1, self._format_angle)
+        else:
+            first_text = self._format_angle(math.degrees(phi.x))
+            second_text = self._format_angle(math.degrees(phi.y))
+
+        context.area.header_text_set(
+            f"Trackball: {first_text}   {second_text}"
+        )
 
     def _apply_trackball_rotation(self, context, phi):
         """Apply the current trackball rotation."""
@@ -2550,11 +2546,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             self._start_euler_compat,
         )
 
-        context.area.header_text_set(
-            f"Trackball: "
-            f"{math.degrees(phi.x):.2f}  "
-            f"{math.degrees(phi.y):.2f}"
-        )
+        self._update_header_text(context, phi)
 
     def modal(self, context, event):
         """Update the trackball rotation and handle modal input."""
@@ -2563,16 +2555,14 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         if event.value == 'PRESS':
             key = event.type
 
-            (
-                self._numeric_input,
-                self._numeric.active,
-                confirm,
-                consume,
-            ) = handle_numeric_key(
-                key,
-                self._numeric_input,
-                self._numeric.active,
-            )
+            if key == 'TAB' and not event.shift:
+                self._numeric.is_active = True
+                self._numeric.next_component()
+                self._update_header_text(context, Vector((0.0, 0.0)))
+                tag_viewport_redraw(context)
+                return {'RUNNING_MODAL'}
+
+            confirm, consume = self._numeric.handle_key(event)
 
             if confirm:
                 cleanup_rotation_modal(context)
@@ -2589,20 +2579,12 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 return {'FINISHED'}
 
             if self._numeric.active:
-                typed_degrees = parse_numeric_input(
-                    self._numeric_input
-                )
-
                 phi = Vector((
-                    math.radians(typed_degrees),
-                    0.0,
+                    math.radians(self._numeric.value(0)),
+                    math.radians(self._numeric.value(1)),
                 ))
 
-                self._apply_trackball_rotation(
-                    context,
-                    phi,
-                )
-
+                self._apply_trackball_rotation(context, phi)
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
@@ -2610,7 +2592,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
-            if self._numeric_active:
+            if self._numeric.active:
                 return {'RUNNING_MODAL'}
 
             current_mouse = Vector((
