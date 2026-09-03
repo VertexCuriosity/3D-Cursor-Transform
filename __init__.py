@@ -2924,9 +2924,16 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             second_amount = delta.dot(second_vector)
             total_distance = delta.length
 
+            if self._numeric.active:
+                first_text = self._numeric.display_text(0, self._format_numeric_distance)
+                second_text = self._numeric.display_text(1, self._format_numeric_distance)
+            else:
+                first_text = self._format_distance(first_amount)
+                second_text = self._format_distance(second_amount)
+
             context.area.header_text_set(
-                f"D:  {self._format_distance(first_amount)}   "
-                f"D: {self._format_distance(second_amount)} "
+                f"D: {first_text}   "
+                f"D: {second_text} "
                 f"({self._format_distance(total_distance)}) "
                 f"locking {orient_label} "
                 f"{self._plane_exclude_axis}"
