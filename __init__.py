@@ -1711,7 +1711,7 @@ class NumericInputState:
             + value[cursor:]
         )
 
-    def display_text(self, component=None):
+    def display_text(self, component=None, value_formatter=None):
         """Return Blender-style text for a numeric input component."""
         if component is None:
             component = self.active_component
@@ -1724,12 +1724,20 @@ class NumericInputState:
 
         if not was_edited:
             if self.is_active and is_active_component:
-                return "|NONE"
+                return "|NONE|"
 
             return "NONE"
 
         if is_active_component:
-            return f"[{self.text_with_cursor(component)}]"
+            text = f"[{self.text_with_cursor(component)}]"
+
+            if value_formatter is not None:
+                text += f" = {value_formatter(self.value(component))}"
+
+            return text
+
+        if value_formatter is not None:
+            return value_formatter(self.value(component))
 
         if value in {"", "-"}:
             return "0"
@@ -2867,6 +2875,16 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     def _format_distance(self, value):
         return f"{value:.4f} m"
 
+    def _format_numeric_distance(self, value):
+        """Format a numeric input value like Blender's transform header."""
+        return bpy.utils.units.to_string(
+            'METRIC',
+            'LENGTH',
+            value,
+            precision=4,
+            split_unit=True,
+        )
+
     def _get_orient_label(self, context):
         if self._using_alternate_orient:
             return alternate_orient_label(context).lower()
@@ -2932,9 +2950,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return
 
         if self._numeric.active:
-            x_text = self._numeric.display_text(0)
-            y_text = self._numeric.display_text(1)
-            z_text = self._numeric.display_text(2)
+            x_text = self._numeric.display_text(0, self._format_numeric_distance)
+            y_text = self._numeric.display_text(1, self._format_numeric_distance)
+            z_text = self._numeric.display_text(2, self._format_numeric_distance)
 
             context.area.header_text_set(
                 f"Dx: {x_text}   "
