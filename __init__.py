@@ -1697,6 +1697,45 @@ class NumericInputState:
         )
         self.cursors[component] -= 1
 
+    def text_with_cursor(self, component=None):
+        """Return numeric input with the edit cursor inserted."""
+        if component is None:
+            component = self.active_component
+
+        value = self.inputs[component]
+        cursor = self.cursors[component]
+
+        return (
+            value[:cursor]
+            + "|"
+            + value[cursor:]
+        )
+
+    def display_text(self, component=None):
+        """Return Blender-style text for a numeric input component."""
+        if component is None:
+            component = self.active_component
+
+        is_active_component = (
+            component == self.active_component
+        )
+        was_edited = self.edited[component]
+        value = self.inputs[component]
+
+        if not was_edited:
+            if self.is_active and is_active_component:
+                return "|NONE"
+
+            return "NONE"
+
+        if is_active_component:
+            return f"[{self.text_with_cursor(component)}]"
+
+        if value in {"", "-"}:
+            return "0"
+
+        return value
+
     def handle_key(self, event):
         """Handle a keypress for modal numeric input."""
         key = event.type
@@ -2892,9 +2931,22 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             )
             return
 
+        if self._numeric.active:
+            x_text = self._numeric.display_text(0)
+            y_text = self._numeric.display_text(1)
+            z_text = self._numeric.display_text(2)
+
+            context.area.header_text_set(
+                f"Dx: {x_text}   "
+                f"Dy: {y_text}   "
+                f"Dz: {z_text} "
+                f"({self._format_distance(delta.length)})"
+            )
+            return
+
         context.area.header_text_set(
             f"Dx: {self._format_distance(delta.x)}   "
-            f"Dy:  {self._format_distance(delta.y)}   "
+            f"Dy: {self._format_distance(delta.y)}   "
             f"Dz: {self._format_distance(delta.z)} "
             f"({self._format_distance(delta.length)})"
         )
