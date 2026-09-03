@@ -1724,7 +1724,7 @@ class NumericInputState:
 
         if not was_edited:
             if self.is_active and is_active_component:
-                return "|NONE|"
+                return "|NONE"
 
             return "NONE"
 
@@ -1736,11 +1736,11 @@ class NumericInputState:
 
             return text
 
-        if value_formatter is not None:
-            return value_formatter(self.value(component))
-
         if value in {"", "-"}:
             return "0"
+
+        if value_formatter is not None:
+            return value_formatter(self.value(component))
 
         return value
 
@@ -2949,8 +2949,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             amount = delta.dot(axis_vector)
             orient_label = self._get_orient_label(context)
 
+            if self._numeric.active:
+                amount_text = self._numeric.display_text(0, self._format_numeric_distance)
+            else:
+                amount_text = self._format_distance(amount)
+
             context.area.header_text_set(
-                f"D:  {self._format_distance(amount)} "
+                f"D: {amount_text} "
                 f"({self._format_distance(abs(amount))}) "
                 f"along {orient_label} {self._axis}"
             )
@@ -4488,6 +4493,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                 "cursortransform.translate_gizmo_start"
             )
             operator_properties.axis = axis
+            operator_properties.plane = ""
 
             self.move_arrows[axis] = gizmo
 
@@ -4497,14 +4503,16 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             gizmo = _new_plane_square(selectable=True)
 
             operator_properties = gizmo.target_set_operator(
-                "cursortransform.translate_modal"
+                "cursortransform.translate_gizmo_start"
             )
+            operator_properties.axis = ""
             operator_properties.plane = plane
 
             self.move_planes[plane] = gizmo
 
         self.ghost_move_planes = {}
 
+        # Non-interactive copies show the starting plane during translation.
         for plane in ("XY", "XZ", "YZ"):
             self.ghost_move_planes[plane] = (
                 _new_plane_square(selectable=False)
