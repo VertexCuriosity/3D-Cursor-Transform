@@ -1588,6 +1588,171 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Numeric Input State
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NumericInputState:
+    """Store and edit modal numeric input."""
+
+    def __init__(self, component_count=1):
+        self.inputs = [""] * component_count
+        self.cursors = [0] * component_count
+        self.edited = [False] * component_count
+        self.active_component = 0
+        self.is_active = False
+
+    @property
+    def component_count(self):
+        return len(self.inputs)
+
+    @property
+    def active_input(self):
+        return self.inputs[self.active_component]
+
+    @property
+    def active_cursor(self):
+        return self.cursors[self.active_component]
+
+    @property
+    def active(self):
+        return self.is_active
+
+    @property
+    def active_edited(self):
+        return self.edited[self.active_component]
+
+    def has_input(self, component=None):
+        """Return whether a component contains numeric input."""
+        if component is None:
+            component = self.active_component
+
+        return self.inputs[component] not in {"", "-"}
+
+    def value(self, component=None):
+        """Return a component's parsed numeric value."""
+        if component is None:
+            component = self.active_component
+
+        return parse_numeric_input(self.inputs[component])
+
+    def set_active_component(self, component):
+        """Set the component currently being edited."""
+        if 0 <= component < self.component_count:
+            self.active_component = component
+
+    def next_component(self):
+        """Move to the next numeric component."""
+        self.active_component = (
+            self.active_component + 1
+        ) % self.component_count
+
+    def previous_component(self):
+        """Move to the previous numeric component."""
+        self.active_component = (
+            self.active_component - 1
+        ) % self.component_count
+
+    def move_cursor_left(self):
+        """Move the input cursor one character left."""
+        component = self.active_component
+        self.cursors[component] = max(
+            0,
+            self.cursors[component] - 1,
+        )
+
+    def move_cursor_right(self):
+        """Move the input cursor one character right."""
+        component = self.active_component
+        self.cursors[component] = min(
+            len(self.inputs[component]),
+            self.cursors[component] + 1,
+        )
+
+    def insert(self, text):
+        """Insert text at the current input cursor."""
+        component = self.active_component
+        cursor = self.cursors[component]
+        value = self.inputs[component]
+
+        self.inputs[component] = (
+            value[:cursor]
+            + text
+            + value[cursor:]
+        )
+        self.cursors[component] += len(text)
+
+    def backspace(self):
+        """Delete the character before the input cursor."""
+        component = self.active_component
+        cursor = self.cursors[component]
+
+        if cursor == 0:
+            return
+
+        value = self.inputs[component]
+
+        self.inputs[component] = (
+            value[:cursor - 1]
+            + value[cursor:]
+        )
+        self.cursors[component] -= 1
+
+    def handle_key(self, event):
+        """Handle a keypress for modal numeric input."""
+        key = event.type
+        component = self.active_component
+
+        if key in _NUMERIC_DIGIT_MAP:
+            self.is_active = True
+            self.edited[component] = True
+            self.insert(_NUMERIC_DIGIT_MAP[key])
+            return False, True
+
+        if key in {'PERIOD', 'NUMPAD_PERIOD'}:
+            self.is_active = True
+            self.edited[component] = True
+
+            if '.' not in self.active_input:
+                self.insert('.')
+
+            return False, True
+
+        if key in {'MINUS', 'NUMPAD_MINUS'}:
+            self.is_active = True
+            self.edited[component] = True
+
+            value = self.inputs[component]
+            cursor = self.cursors[component]
+
+            if value.startswith('-'):
+                self.inputs[component] = value[1:]
+                self.cursors[component] = max(0, cursor - 1)
+            else:
+                self.inputs[component] = '-' + value
+                self.cursors[component] = cursor + 1
+
+            return False, True
+
+        if key == 'BACK_SPACE' and self.is_active:
+            self.edited[component] = True
+            self.backspace()
+            return False, True
+
+        if key == 'LEFT_ARROW' and self.is_active:
+            self.move_cursor_left()
+            return False, True
+
+        if key == 'RIGHT_ARROW' and self.is_active:
+            self.move_cursor_right()
+            return False, True
+
+        if key in {'RET', 'NUMPAD_ENTER'} and self.is_active:
+            return True, True
+
+        return False, False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Rotation Operators
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2158,7 +2323,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
-            if self._numeric_active:
+            if self._numeric.active:
                 return {'RUNNING_MODAL'}
 
             if self._mmb_held:
@@ -2353,13 +2518,13 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
             (
                 self._numeric_input,
-                self._numeric_active,
+                self._numeric.active,
                 confirm,
                 consume,
             ) = handle_numeric_key(
                 key,
                 self._numeric_input,
-                self._numeric_active,
+                self._numeric.active,
             )
 
             if confirm:
@@ -2376,7 +2541,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 self._swap_to_view_rotation(context)
                 return {'FINISHED'}
 
-            if self._numeric_active:
+            if self._numeric.active:
                 typed_degrees = parse_numeric_input(
                     self._numeric_input
                 )
@@ -2536,11 +2701,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._precision_start_mouse = None
         self._precision_start_loc = None
         
-        self._numeric_input = ""
-        self._numeric_active = False
-
-        self._plane_numeric_inputs = ["", ""]
-        self._plane_numeric_component = 0
+        self._numeric = NumericInputState(component_count=3)
 
         self._start_orient = build_orient_matrix(context).copy()
         self._start_orient_alternate = (
@@ -2610,6 +2771,8 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         context.workspace.status_text_set(draw_status_translate)
         window_manager.modal_handler_add(self)
 
+        self._update_header_text(context)
+
         return {'RUNNING_MODAL'}
 
     def _remove_axis_line_handler(self):
@@ -2643,6 +2806,24 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             .to_3d()
             .normalized()
         )
+
+    def _numeric_component_count(self):
+        """Return the number of editable numeric translation components."""
+        if self._axis in {"X", "Y", "Z"}:
+            return 1
+
+        if self._plane_exclude_axis in {"X", "Y", "Z"}:
+            return 2
+
+        return 3
+
+    def _advance_numeric_component(self):
+        """Move to the next editable numeric translation component."""
+        component_count = self._numeric_component_count()
+
+        self._numeric.active_component = (
+            self._numeric.active_component + 1
+        ) % component_count
 
     def _format_distance(self, value):
         return f"{value:.4f} m"
@@ -3039,14 +3220,14 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _apply_numeric_translation(self, context):
         """Apply the current numeric translation."""
+        orientation = self._get_active_orient()
+
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane_axes = [
                 axis
                 for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             ]
-
-            orientation = self._get_active_orient()
 
             first_vector = (
                 orientation
@@ -3061,38 +3242,32 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
                 .normalized()
             )
 
-            first_value = parse_numeric_input(
-                self._plane_numeric_inputs[0]
+            context.scene.cursor.location = (
+                self._start_loc
+                + first_vector * self._numeric.value(0)
+                + second_vector * self._numeric.value(1)
             )
-            second_value = parse_numeric_input(
-                self._plane_numeric_inputs[1]
-            )
+
+        elif self._axis in {"X", "Y", "Z"}:
+            axis_vector = self._get_axis_vector()
+
+            if axis_vector is None:
+                return
 
             context.scene.cursor.location = (
                 self._start_loc
-                + first_vector * first_value
-                + second_vector * second_value
+                + axis_vector * self._numeric.value(0)
             )
 
         else:
-            value = parse_numeric_input(self._numeric_input)
-
-            if self._axis in {"X", "Y", "Z"}:
-                axis_vector = self._get_axis_vector()
-
-                if axis_vector is None:
-                    return
-            else:
-                axis_vector = (
-                    self._start_orient
-                    .col[0]
-                    .to_3d()
-                    .normalized()
-                )
-
             context.scene.cursor.location = (
                 self._start_loc
-                + axis_vector * value
+                + orientation.col[0].to_3d().normalized()
+                * self._numeric.value(0)
+                + orientation.col[1].to_3d().normalized()
+                * self._numeric.value(1)
+                + orientation.col[2].to_3d().normalized()
+                * self._numeric.value(2)
             )
 
         self._update_header_text(context)
@@ -3289,83 +3464,25 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
         if event.value == 'PRESS':
-            if (
-                event.type == 'TAB'
-                and not event.shift
-                and self._plane_exclude_axis in {"X", "Y", "Z"}
-                and self._numeric_active
-            ):
-                self._plane_numeric_component = (
-                    1 - self._plane_numeric_component
-                )
-
-                self._update_header_text(context)
-                tag_viewport_redraw(context)
+            if event.type == 'TAB' and not event.shift:
+                if self._numeric_component_count() > 1:
+                    self._numeric.is_active = True
+                    self._advance_numeric_component()
+                    self._update_header_text(context)
+                    tag_viewport_redraw(context)
 
                 return {'RUNNING_MODAL'}
 
-            if self._plane_exclude_axis in {"X", "Y", "Z"}:
-                component = self._plane_numeric_component
+            confirm, consume = self._numeric.handle_key(event)
 
-                (
-                    self._plane_numeric_inputs[component],
-                    component_active,
-                    confirm,
-                    consume,
-                ) = handle_numeric_key(
-                    event.type,
-                    self._plane_numeric_inputs[component],
-                    (
-                        self._plane_numeric_inputs[component]
-                        not in {"", "-"}
-                    ),
-                )
+            if confirm:
+                self._finish(context)
+                return {'FINISHED'}
 
-                self._numeric_active = any(
-                    value not in {"", "-"}
-                    for value in self._plane_numeric_inputs
-                )
-
-                if confirm and self._numeric_active:
-                    self._finish(context)
-                    return {'FINISHED'}
-
-                if consume:
-                    if self._numeric_active:
-                        self._apply_numeric_translation(context)
-                    else:
-                        context.scene.cursor.location = self._start_loc.copy()
-                        self._update_header_text(context)
-                        tag_viewport_redraw(context)
-
-                    return {'RUNNING_MODAL'}
-
-            else:
-                (
-                    self._numeric_input,
-                    self._numeric_active,
-                    confirm,
-                    consume,
-                ) = handle_numeric_key(
-                    event.type,
-                    self._numeric_input,
-                    self._numeric_active,
-                )
-
-                if confirm and self._numeric_active:
-                    self._finish(context)
-                    return {'FINISHED'}
-
-                if consume:
-                    if self._numeric_active:
-                        self._apply_numeric_translation(context)
-                    else:
-                        context.scene.cursor.location = self._start_loc.copy()
-                        self._update_header_text(context)
-                        tag_viewport_redraw(context)
-
-                    return {'RUNNING_MODAL'}
-        
+            if consume:
+                self._apply_numeric_translation(context)
+                return {'RUNNING_MODAL'}
+                
         if (
             event.value == 'PRESS'
             and event.type == 'C'
@@ -3434,7 +3551,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
-            if self._numeric_active:
+            if self._numeric.active:
                 return {'RUNNING_MODAL'}
 
             if context.scene.tool_settings.use_snap:
