@@ -180,29 +180,6 @@ _ROTATE_PREVIOUS_AXIS = None
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Cursor alignment helpers ─────────────────────────────────────────────────
-
-def get_addon_preferences(context):
-    preferences = getattr(context, "preferences", None)
-    if preferences is None:
-        return None
-
-    addon = preferences.addons.get(__package__)
-    return addon.preferences if addon else None
-
-def update_cursor_align_preference(preferences, context):
-    """Use Blender's native new-object alignment setting."""
-    edit = context.preferences.edit
-
-    if preferences.align_added_snapped_to_cursor_rotation:
-        if edit.object_align != 'CURSOR':
-            preferences.previous_object_align = edit.object_align
-
-        edit.object_align = 'CURSOR'
-    else:
-        edit.object_align = preferences.previous_object_align
-
-
 # ── Context, viewport, and modal state ───────────────────────────────────────
 
 def active_tool_is_cursor(context):
@@ -455,6 +432,7 @@ def cleanup_rotation_modal(context):
         context.workspace.status_text_set(None)
 
     tag_viewport_redraw(context)
+
 
 def parse_numeric_input(numeric_input):
     """Convert modal numeric input to a float."""
@@ -1332,35 +1310,6 @@ def _rotate_guide_draw_op(operator):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Add-on Preferences
-# ─────────────────────────────────────────────────────────────────────────────
-
-class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
-    """Preferences for the 3D Cursor Transform add-on."""
-
-    bl_idname = __package__
-
-    previous_object_align: bpy.props.StringProperty(
-        default="WORLD",
-        options={'HIDDEN'},
-    )
-
-    align_added_snapped_to_cursor_rotation: bpy.props.BoolProperty(
-        name="Match 3D Cursor Rotation",
-        description="Align newly added objects to the 3D Cursor rotation",
-        default=False,
-        update=update_cursor_align_preference,
-    )
-
-    def draw(self, _context):
-        layout = self.layout
-        layout.prop(
-            self,
-            "align_added_snapped_to_cursor_rotation",
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Numeric Input State
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1383,23 +1332,8 @@ class NumericInputState:
         return self.inputs[self.active_component]
 
     @property
-    def active_cursor(self):
-        return self.cursors[self.active_component]
-
-    @property
     def active(self):
         return self.is_active
-
-    @property
-    def active_edited(self):
-        return self.edited[self.active_component]
-
-    def has_input(self, component=None):
-        """Return whether a component contains numeric input."""
-        if component is None:
-            component = self.active_component
-
-        return self.inputs[component] not in {"", "-"}
 
     def value(self, component=None):
         """Return a component's parsed numeric value."""
@@ -1408,21 +1342,10 @@ class NumericInputState:
 
         return parse_numeric_input(self.inputs[component])
 
-    def set_active_component(self, component):
-        """Set the component currently being edited."""
-        if 0 <= component < self.component_count:
-            self.active_component = component
-
     def next_component(self):
         """Move to the next numeric component."""
         self.active_component = (
             self.active_component + 1
-        ) % self.component_count
-
-    def previous_component(self):
-        """Move to the previous numeric component."""
-        self.active_component = (
-            self.active_component - 1
         ) % self.component_count
 
     def move_cursor_left(self):
@@ -5234,7 +5157,6 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 # ─────────────────────────────────────────────────────────────────────────────
 
 classes = (
-    CURSORTRANSFORM_AddonPreferences,
     CURSORTRANSFORM_OT_rotate_modal,
     CURSORTRANSFORM_OT_rotate_free_modal,
     CURSORTRANSFORM_OT_clear_transform,
@@ -5339,20 +5261,10 @@ def register():
     )
 
     _register_keymaps()
-
+    
 
 def unregister():
     """Unregister the add-on."""
-
-    preferences = get_addon_preferences(bpy.context)
-
-    if (
-        preferences
-        and preferences.align_added_snapped_to_cursor_rotation
-    ):
-        bpy.context.preferences.edit.object_align = (
-            preferences.previous_object_align
-        )
 
     _unregister_keymaps()
 
