@@ -1710,7 +1710,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             f"Rotation: {angle_text} "
             f"along {orientation_label} {self.axis}"
         )
-    
+
     def _switch_axis_constraint(
         self,
         context,
@@ -2436,7 +2436,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     plane: bpy.props.StringProperty(default="")
 
     def invoke(self, context, event):
-        """Initialize the custom translation modal state."""        
+        """Initialize the custom translation modal state."""
         cursor = context.scene.cursor
 
         self._initial_loc = cursor.location.copy()
@@ -2455,7 +2455,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._precision_active = False
         self._precision_start_mouse = None
         self._precision_start_loc = None
-        
+
         self._numeric = NumericInputState(component_count=3)
 
         self._start_orient = build_orient_matrix(context).copy()
@@ -3276,7 +3276,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             if consume:
                 self._apply_numeric_translation(context)
                 return {'RUNNING_MODAL'}
-                
+
         if (
             event.value == 'PRESS'
             and event.type == 'C'
@@ -4655,7 +4655,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
             normal_axis = PLANE_NORMAL_AXIS[plane]
             plane_color = axis_colors[normal_axis]
-            
+
             plane_normal = (
                 plane_orientation
                 .col[AXIS_INDEX[normal_axis]]
@@ -5227,7 +5227,7 @@ def _register_keymaps():
     )
     keymap_item.properties.mode = 'ROTATION'
     _addon_keymaps.append((keymap, keymap_item))
-    
+
 
 def _unregister_keymaps():
     """Remove the add-on's registered shortcuts."""
@@ -5261,7 +5261,7 @@ def register():
     )
 
     _register_keymaps()
-    
+
 
 def unregister():
     """Unregister the add-on."""
