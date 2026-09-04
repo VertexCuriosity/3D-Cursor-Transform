@@ -3,7 +3,7 @@
 
 Bring Blender's full transform system to the 3D Cursor.
 
-Move and rotate the 3D Cursor using Blender's familiar keyboard shortcuts and transform gizmos. Constrain movement with X, Y, and Z, use plane constraints, snapping, precision mode, numeric input, and optional cursor alignment preferences—all integrated into the existing Blender workflow.
+Move and rotate the 3D Cursor using Blender's familiar keyboard shortcuts and transform gizmos. Constrain movement with X, Y, and Z, use plane constraints, snapping, precision mode, and numeric input — all integrated into the existing Blender workflow.
 
 ## Why this add-on exists
 
@@ -18,13 +18,11 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 - Move and rotate the 3D Cursor using Blender's familiar **G** and **R** shortcuts.
 - Reset the 3D Cursor's location and rotation using **Alt + G** and **Alt + R**.
 - Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
-- Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
 - Use **plane constraints** with **Shift + X**, **Y**, and **Z**.
 - Support for **numeric input** for precise transformations.
 - Hold **Shift** for precision mode.
 - Use Blender's built-in **snapping** system.
 - Transform the 3D Cursor using dedicated **move** and **rotate gizmos**.
-- Optional preference to align new objects and **Selection to Cursor** operations to the 3D Cursor's rotation.
 
 ## Installation
 
@@ -77,20 +75,9 @@ Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo*
 
 ### Precision and Snapping
 
-Hold **Shift** for precision mode, **Ctrl** for snapping, or enter numeric values for precise transformations.
+During a transform, enter numeric values for precise transformations, hold **Shift** for precision mode, or use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
 
 For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
-
-## Optional Preferences
-
-Open **Edit → Preferences → Add-ons → 3D Cursor Transform** to access the add-on's preferences.
-
-### Match 3D Cursor Rotation
-When enabled, newly added objects and **Selection to Cursor** operations automatically match the 3D Cursor's rotation.
-
-This makes it easy to place objects directly onto sloped or angled surfaces without having to rotate them afterwards.
-
-![Match 3D Cursor Rotation preference](screenshots/preferences.png)
 
 ## Limitations
 
