@@ -1620,6 +1620,8 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
+        self._mmb_initial_reset_done = False
+        self._mmb_axis_selected = False
 
         return {'RUNNING_MODAL'}
 
@@ -1894,6 +1896,26 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     def _enter_mmb_pickup(self, context):
         """Begin screen-space axis selection with the middle mouse button."""
         global _ROTATE_MMB_HELD
+        global _ROTATE_GUIDE_TOTAL_ANGLE
+
+        if not self._mmb_initial_reset_done:
+            cursor = context.scene.cursor
+
+            restore_cursor_rotation(
+                cursor,
+                self._rot_mode,
+                self._start_rot,
+            )
+
+            self._start_quat = get_cursor_quaternion(cursor)
+            self._start_euler_compat = cursor.rotation_euler.copy()
+
+            self._guide_total_angle = 0.0
+            _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
+
+            self._update_header_text(context, 0.0)
+            self._mmb_initial_reset_done = True
+            self._mmb_axis_selected = False
 
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
@@ -1907,12 +1929,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 .normalized()
             )
 
-            self._mmb_axis_dirs_2d[axis] = (
-                _project_axis_dir_2d(
-                    context,
-                    self._start_loc,
-                    world_axis,
-                )
+            self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(
+                context,
+                self._start_loc,
+                world_axis,
             )
 
         _ROTATE_MMB_HELD = True
@@ -2070,18 +2090,20 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
             if self._mmb_held:
-                switched_axis = (
-                    self._maybe_switch_axis_by_proximity(
-                        context,
-                        event,
-                    )
+                switched_axis = self._maybe_switch_axis_by_proximity(
+                    context,
+                    event,
                 )
 
                 if switched_axis:
+                    self._mmb_axis_selected = True
                     self._guide_mouse_2d = Vector((
                         event.mouse_region_x,
                         event.mouse_region_y,
                     ))
+                    return {'RUNNING_MODAL'}
+
+                if not self._mmb_axis_selected:
                     return {'RUNNING_MODAL'}
 
             current_mouse = Vector((
