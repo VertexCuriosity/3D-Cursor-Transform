@@ -128,9 +128,7 @@ ROTATE_CONSTRAINT_LINE_WIDTH = 2.0
 ROTATE_CONSTRAINT_AXIS_SAMPLE = 0.25
 
 # MMB axis pickup
-# The proximity threshold is measured in screen pixels at 1x DPI.
 ROTATE_MMB_AXIS_LINE_DIM_ALPHA = 0.35
-ROTATE_MMB_PROXIMITY_THRESHOLD_PX = 30.0
 
 # Rotation ring and free-rotate layout
 ROTATE_SECTOR_SCALE_FACTOR = 0.97
@@ -1120,15 +1118,8 @@ def _project_axis_dir_2d(context, center_3d, axis_vector):
     return direction_2d.normalized()
 
 
-def _closest_axis_to_mouse(
-    mouse_2d,
-    center_2d,
-    axis_directions_2d,
-    threshold_pixels,
-):
-    """
-    Return the projected axis nearest to the mouse within the threshold.
-    """
+def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
+    """Return the projected axis most aligned with the mouse direction."""
     if (
         mouse_2d is None
         or center_2d is None
@@ -1136,10 +1127,15 @@ def _closest_axis_to_mouse(
     ):
         return None
 
-    relative_mouse = mouse_2d - center_2d
+    mouse_direction = mouse_2d - center_2d
+
+    if mouse_direction.length <= 1e-6:
+        return None
+
+    mouse_direction.normalize()
 
     closest_axis = None
-    closest_distance = float("inf")
+    best_alignment = -1.0
 
     for axis in ("X", "Y", "Z"):
         direction = axis_directions_2d.get(axis)
@@ -1147,20 +1143,13 @@ def _closest_axis_to_mouse(
         if direction is None:
             continue
 
-        # Perpendicular distance to the infinite axis line.
-        distance = abs(
-            relative_mouse.x * direction.y
-            - relative_mouse.y * direction.x
-        )
+        alignment = abs(mouse_direction.dot(direction))
 
-        if distance < closest_distance:
-            closest_distance = distance
+        if alignment > best_alignment:
+            best_alignment = alignment
             closest_axis = axis
 
-    if closest_distance <= threshold_pixels:
-        return closest_axis
-
-    return None
+    return closest_axis
 
 
 # ── Rotation guide drawing ───────────────────────────────────────────────────
@@ -1220,19 +1209,21 @@ def _draw_shortcut_axis_line(operator):
     shader.uniform_float("lineWidth", scaled_line_width)
 
     for axis in axes_to_draw:
-        axis_index = AXIS_INDEX[axis]
-        world_axis = (
-            operator._get_active_orient()
-            .col[axis_index]
-            .to_3d()
-            .normalized()
-        )
-
-        direction_2d = _project_axis_dir_2d(
-            context,
-            operator._start_loc,
-            world_axis,
-        )
+        if _ROTATE_MMB_HELD:
+            direction_2d = operator._mmb_axis_dirs_2d.get(axis)
+        else:
+            axis_index = AXIS_INDEX[axis]
+            world_axis = (
+                operator._get_active_orient()
+                .col[axis_index]
+                .to_3d()
+                .normalized()
+            )
+            direction_2d = _project_axis_dir_2d(
+                context,
+                operator._start_loc,
+                world_axis,
+            )
 
         if direction_2d is None:
             continue
@@ -1620,8 +1611,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
-        self._mmb_initial_reset_done = False
-        self._mmb_axis_selected = False
+
+        self._committed_quat = self._start_quat.copy()
+        self._committed_euler_compat = self._start_euler_compat.copy()
 
         return {'RUNNING_MODAL'}
 
@@ -1898,27 +1890,33 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         global _ROTATE_MMB_HELD
         global _ROTATE_GUIDE_TOTAL_ANGLE
 
-        if not self._mmb_initial_reset_done:
-            cursor = context.scene.cursor
+        cursor = context.scene.cursor
 
-            restore_cursor_rotation(
-                cursor,
-                self._rot_mode,
-                self._start_rot,
-            )
+        set_cursor_from_quaternion(
+            cursor,
+            self._committed_quat,
+            self._committed_euler_compat,
+        )
 
-            self._start_quat = get_cursor_quaternion(cursor)
-            self._start_euler_compat = cursor.rotation_euler.copy()
+        self._start_quat = self._committed_quat.copy()
+        self._start_euler_compat = self._committed_euler_compat.copy()
 
-            self._guide_total_angle = 0.0
-            _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
+        self.axis = "VIEW"
+        self._using_alternate_orient = False
 
-            self._update_header_text(context, 0.0)
-            self._mmb_initial_reset_done = True
-            self._mmb_axis_selected = False
+        self._start_orient = build_orient_matrix(context).copy()
+        self._start_orient_alternate = (
+            build_alternate_orient_matrix(context).copy()
+        )
 
+        self._guide_total_angle = 0.0
+        _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
+
+        self._mmb_candidate_axis = None
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
+
+        context.window_manager.cursortransform_active_rotate_axis = "VIEW"
 
         for axis in ("X", "Y", "Z"):
             axis_index = AXIS_INDEX[axis]
@@ -1936,28 +1934,24 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             )
 
         _ROTATE_MMB_HELD = True
+
+        self._update_header_text(context, 0.0)
         tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
-        """Switch to the projected axis nearest to the mouse."""
+        """Switch to the projected axis most aligned with the mouse."""
         mouse_2d = Vector((
             event.mouse_region_x,
             event.mouse_region_y,
         ))
-        threshold_pixels = (
-            ROTATE_MMB_PROXIMITY_THRESHOLD_PX
-            * context.preferences.system.pixel_size
-        )
 
         new_axis = _closest_axis_to_mouse(
             mouse_2d,
             self._guide_center_2d,
             self._mmb_axis_dirs_2d,
-            threshold_pixels,
         )
 
         if new_axis is not None and new_axis != self.axis:
-            # Preserve the current primary or alternate orientation state.
             self._switch_axis_constraint(
                 context,
                 event,
@@ -2096,14 +2090,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 )
 
                 if switched_axis:
-                    self._mmb_axis_selected = True
                     self._guide_mouse_2d = Vector((
                         event.mouse_region_x,
                         event.mouse_region_y,
                     ))
-                    return {'RUNNING_MODAL'}
-
-                if not self._mmb_axis_selected:
                     return {'RUNNING_MODAL'}
 
             current_mouse = Vector((
@@ -2141,14 +2131,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
-            self._update_header_text(
-                context,
-                angle,
-            )
-            self._apply_rotation(
-                context,
-                angle,
-            )
+            self._update_header_text(context, angle)
+            self._apply_rotation(context, angle)
+
+            if self.axis in {"X", "Y", "Z"}:
+                self._committed_quat = get_cursor_quaternion(
+                    context.scene.cursor
+                )
+                self._committed_euler_compat = (
+                    context.scene.cursor.rotation_euler.copy()
+                )
 
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
@@ -2967,11 +2959,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             event.mouse_region_y,
         ))
 
-        threshold_pixels = (
-            ROTATE_MMB_PROXIMITY_THRESHOLD_PX
-            * context.preferences.system.pixel_size
-        )
-
         center_2d = view3d_utils.location_3d_to_region_2d(
             context.region,
             context.region_data,
@@ -2982,7 +2969,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             mouse_2d,
             center_2d,
             self._mmb_axis_dirs_2d,
-            threshold_pixels,
         )
 
         if new_axis is not None and new_axis != self._axis:
