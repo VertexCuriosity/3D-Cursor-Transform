@@ -1612,9 +1612,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
 
-        self._committed_quat = self._start_quat.copy()
-        self._committed_euler_compat = self._start_euler_compat.copy()
-
         return {'RUNNING_MODAL'}
 
     def _remove_guide_handler(self):
@@ -1705,16 +1702,8 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             f"along {orientation_label} {self.axis}"
         )
 
-    def _switch_axis_constraint(
-        self,
-        context,
-        event,
-        new_axis,
-        use_alternate_orient=False,
-    ):
-        """
-        Switch the active rotation constraint without interrupting the modal.
-        """
+    def _switch_axis_constraint(self, context, event, new_axis, use_alternate_orient=False):
+        """Switch the active rotation constraint without resetting the transform."""
         if new_axis not in {"X", "Y", "Z", "VIEW"}:
             return
 
@@ -1724,26 +1713,11 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         ):
             return
 
-        cursor = context.scene.cursor
-
-        # Continue from the current cursor rotation without jumping.
-        self._start_quat = get_cursor_quaternion(cursor)
-        self._start_euler_compat = cursor.rotation_euler.copy()
-
-        # Refresh the transform bases so Local constraints match the
-        # cursor's current orientation when switching axes.
-        self._start_orient = build_orient_matrix(context).copy()
-        self._start_orient_alternate = (
-            build_alternate_orient_matrix(context).copy()
-        )
-
         self.axis = new_axis
         self._using_alternate_orient = use_alternate_orient
 
         global _ROTATE_ACTIVE_ORIENT
         _ROTATE_ACTIVE_ORIENT = self._get_active_orient().copy()
-
-        self._guide_total_angle = 0.0
 
         gizmo_size = max(
             context.preferences.view.gizmo_size,
@@ -1790,23 +1764,31 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._guide_basis_y_2d,
         )
 
-        if mouse_angle is None:
-            mouse_angle = 0.0
-
-        self._guide_start_angle = mouse_angle
-        self._guide_last_mouse_angle = mouse_angle
+        if mouse_angle is not None:
+            self._guide_start_angle = (
+                mouse_angle - self._guide_total_angle
+            )
+            self._guide_last_mouse_angle = mouse_angle
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
 
         _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
-        _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
+        _ROTATE_GUIDE_TOTAL_ANGLE = self._guide_total_angle
 
         context.window_manager.cursortransform_active_rotate_axis = (
             self.axis
         )
 
-        self._update_header_text(context, 0.0)
+        self._apply_rotation(
+            context,
+            self._guide_total_angle,
+        )
+        self._update_header_text(
+            context,
+            self._guide_total_angle,
+        )
+
         tag_viewport_redraw(context)
 
     def _advance_axis_cycle(self, context, event, axis):
@@ -1885,38 +1867,18 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             'INVOKE_DEFAULT'
         )
 
-    def _enter_mmb_pickup(self, context):
-        """Begin screen-space axis selection with the middle mouse button."""
+    def _enter_mmb_pickup(self, context, event):
+        """Begin automatic axis selection with the middle mouse button."""
         global _ROTATE_MMB_HELD
-        global _ROTATE_GUIDE_TOTAL_ANGLE
 
-        cursor = context.scene.cursor
+        self._mmb_held = True
+        self._mmb_axis_dirs_2d = {}
 
-        set_cursor_from_quaternion(
-            cursor,
-            self._committed_quat,
-            self._committed_euler_compat,
-        )
-
-        self._start_quat = self._committed_quat.copy()
-        self._start_euler_compat = self._committed_euler_compat.copy()
-
-        self.axis = "VIEW"
-        self._using_alternate_orient = False
-
+        # Refresh the bases so Local MMB selection matches the cursor orientation.
         self._start_orient = build_orient_matrix(context).copy()
         self._start_orient_alternate = (
             build_alternate_orient_matrix(context).copy()
         )
-
-        self._guide_total_angle = 0.0
-        _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
-
-        self._mmb_candidate_axis = None
-        self._mmb_held = True
-        self._mmb_axis_dirs_2d = {}
-
-        context.window_manager.cursortransform_active_rotate_axis = "VIEW"
 
         for axis in ("X", "Y", "Z"):
             axis_index = AXIS_INDEX[axis]
@@ -1935,7 +1897,11 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         _ROTATE_MMB_HELD = True
 
-        self._update_header_text(context, 0.0)
+        self._maybe_switch_axis_by_proximity(
+            context,
+            event,
+        )
+
         tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
@@ -2068,7 +2034,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
                 if not self._numeric.active:
-                    self._enter_mmb_pickup(context)
+                    self._enter_mmb_pickup(context, event)
 
                 return {'RUNNING_MODAL'}
 
@@ -2084,17 +2050,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
             if self._mmb_held:
-                switched_axis = self._maybe_switch_axis_by_proximity(
-                    context,
-                    event,
-                )
-
-                if switched_axis:
-                    self._guide_mouse_2d = Vector((
-                        event.mouse_region_x,
-                        event.mouse_region_y,
-                    ))
-                    return {'RUNNING_MODAL'}
+                self._maybe_switch_axis_by_proximity(context, event)
 
             current_mouse = Vector((
                 event.mouse_region_x,
@@ -2133,14 +2089,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             self._update_header_text(context, angle)
             self._apply_rotation(context, angle)
-
-            if self.axis in {"X", "Y", "Z"}:
-                self._committed_quat = get_cursor_quaternion(
-                    context.scene.cursor
-                )
-                self._committed_euler_compat = (
-                    context.scene.cursor.rotation_euler.copy()
-                )
 
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
