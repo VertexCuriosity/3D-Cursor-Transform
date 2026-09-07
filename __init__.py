@@ -4231,10 +4231,9 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         }
 
         operator_properties = self.move_center.target_set_operator(
-            "cursortransform.translate_gizmo_start"
+            "cursortransform.translate_free"
         )
-        operator_properties.axis = ""
-        operator_properties.plane = ""
+        operator_properties.release_confirm = True
 
         # Blender draws gizmos in reverse registration order. Preserve this
         # order so ticks appear above rings, sectors, and axis lines.
