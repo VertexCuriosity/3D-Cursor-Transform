@@ -1874,12 +1874,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
 
-        # Refresh the bases so Local MMB selection matches the cursor orientation.
-        self._start_orient = build_orient_matrix(context).copy()
-        self._start_orient_alternate = (
-            build_alternate_orient_matrix(context).copy()
-        )
-
         for axis in ("X", "Y", "Z"):
             axis_index = AXIS_INDEX[axis]
             world_axis = (
