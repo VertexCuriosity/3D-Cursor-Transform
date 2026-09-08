@@ -1004,6 +1004,26 @@ def _wrap_pi(angle):
     return (angle + math.pi) % math.tau - math.pi
 
 
+def _screen_angle_delta(center, previous_mouse, current_mouse):
+    """Return Blender-style signed mouse-angle change around a screen-space center."""
+    previous_direction = previous_mouse - center
+    current_direction = current_mouse - center
+
+    if previous_direction.length <= 1e-8 or current_direction.length <= 1e-8:
+        return 0.0
+
+    previous_direction.normalize()
+    current_direction.normalize()
+
+    dot = max(-1.0, min(1.0, previous_direction.dot(current_direction)))
+    angle_delta = math.acos(dot)
+
+    if previous_direction.cross(current_direction) > 0.0:
+        angle_delta = -angle_delta
+
+    return angle_delta
+
+
 def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
     """Return the mouse angle within a projected ellipse basis."""
     if (
@@ -1095,17 +1115,8 @@ def _build_screen_space_ring_basis(
 
 def _project_axis_dir_2d(context, center_3d, axis_vector):
     """Project a 3D axis into a normalized screen-space direction."""
-    center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        center_3d,
-    )
-    tip_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        center_3d
-        + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE,
-    )
+    center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d)
+    tip_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE)
 
     if center_2d is None or tip_2d is None:
         return None
@@ -1116,6 +1127,19 @@ def _project_axis_dir_2d(context, center_3d, axis_vector):
         return None
 
     return direction_2d.normalized()
+
+
+def _view_vector_at_location(context, location):
+    """Return Blender's view_vector_calc equivalent."""
+    rv3d = context.region_data
+    view_inv = rv3d.view_matrix.inverted()
+    vector = view_inv.translation - location if rv3d.is_perspective else view_inv.col[2].to_3d()
+    return vector.normalized()
+
+
+def _axis_points_to_screen(context, location, axis):
+    """Return whether the rotation axis points toward the viewer."""
+    return axis.dot(_view_vector_at_location(context, location)) > 0.0
 
 
 def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
@@ -1178,11 +1202,7 @@ def _draw_shortcut_axis_line(operator):
     else:
         return
 
-    center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        operator._start_loc,
-    )
+    center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, operator._start_loc)
 
     if center_2d is None:
         return
@@ -1219,11 +1239,7 @@ def _draw_shortcut_axis_line(operator):
                 .to_3d()
                 .normalized()
             )
-            direction_2d = _project_axis_dir_2d(
-                context,
-                operator._start_loc,
-                world_axis,
-            )
+            direction_2d = _project_axis_dir_2d(context, operator._start_loc, world_axis)
 
         if direction_2d is None:
             continue
@@ -1570,18 +1586,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         self._guide_start_angle = 0.0
         self._guide_total_angle = 0.0
-
-        initial_angle = _ellipse_angle_from_mouse(
-            self._guide_center_2d,
-            self._guide_start_mouse_2d,
-            self._guide_basis_x_2d,
-            self._guide_basis_y_2d,
-        )
-
-        if initial_angle is not None:
-            self._guide_start_angle = initial_angle
-
-        self._guide_last_mouse_angle = self._guide_start_angle
+        self._guide_previous_mouse_2d = self._guide_start_mouse_2d.copy()
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
@@ -1650,7 +1655,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_basis_y_2d = None
         self._guide_start_angle = 0.0
         self._guide_total_angle = 0.0
-        self._guide_last_mouse_angle = 0.0
+        self._guide_previous_mouse_2d = None
 
     def _get_active_orient(self):
         """Return the currently active constrained-rotation basis."""
@@ -1660,21 +1665,19 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return self._start_orient
 
     def _get_frozen_axis_vector(self):
-        """Return the frozen world-space rotation axis."""
+        """Return the Blender-style frozen world-space rotation axis."""
         if self.axis == "VIEW":
-            return (
-                self._start_view
-                @ Vector((0.0, 0.0, 1.0))
-            ).normalized()
+            return -(self._start_view @ Vector((0.0, 0.0, 1.0))).normalized()
 
         axis_index = AXIS_INDEX[self.axis]
+        return self._get_active_orient().col[axis_index].to_3d().normalized()
 
-        return (
-            self._get_active_orient()
-            .col[axis_index]
-            .to_3d()
-            .normalized()
-        )
+    def _get_applied_mouse_angle(self, context, angle, snap=False):
+        """Apply Blender's mouse-driven rotation direction and snapping."""
+        if _axis_points_to_screen(context, self._start_loc, self._get_frozen_axis_vector()):
+            angle = -angle
+
+        return round(angle / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP if snap else angle
 
     def _format_angle(self, value):
         return f"{value:g}\u00b0"
@@ -1757,37 +1760,20 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         ))
         self._guide_mouse_2d = current_mouse
 
-        mouse_angle = _ellipse_angle_from_mouse(
-            self._guide_center_2d,
-            current_mouse,
-            self._guide_basis_x_2d,
-            self._guide_basis_y_2d,
-        )
-
-        if mouse_angle is not None:
-            self._guide_start_angle = (
-                mouse_angle - self._guide_total_angle
-            )
-            self._guide_last_mouse_angle = mouse_angle
+        self._guide_previous_mouse_2d = current_mouse.copy()
 
         global _ROTATE_GUIDE_START_ANGLE
         global _ROTATE_GUIDE_TOTAL_ANGLE
 
+        angle = self._get_applied_mouse_angle(context, self._guide_total_angle, event.ctrl)
+
         _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
-        _ROTATE_GUIDE_TOTAL_ANGLE = self._guide_total_angle
+        _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
-        context.window_manager.cursortransform_active_rotate_axis = (
-            self.axis
-        )
+        context.window_manager.cursortransform_active_rotate_axis = self.axis
 
-        self._apply_rotation(
-            context,
-            self._guide_total_angle,
-        )
-        self._update_header_text(
-            context,
-            self._guide_total_angle,
-        )
+        self._apply_rotation(context, angle)
+        self._update_header_text(context, angle)
 
         tag_viewport_redraw(context)
 
@@ -2007,17 +1993,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             if self._numeric.active:
                 angle = math.radians(self._numeric.value())
-
-                applied_angle = (
-                    -angle
-                    if self.axis == "VIEW"
-                    else angle
-                )
-
-                _ROTATE_GUIDE_TOTAL_ANGLE = applied_angle
+                _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
                 self._update_header_text(context, angle)
-                self._apply_rotation(context, applied_angle)
+                self._apply_rotation(context, angle)
 
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
@@ -2052,33 +2031,15 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             ))
             self._guide_mouse_2d = current_mouse
 
-            mouse_angle = _ellipse_angle_from_mouse(
-                self._guide_center_2d,
-                current_mouse,
-                self._guide_basis_x_2d,
-                self._guide_basis_y_2d,
-            )
+            angle_delta = _screen_angle_delta(self._guide_center_2d, self._guide_previous_mouse_2d, current_mouse)
 
-            if mouse_angle is not None:
-                angle_delta = _wrap_pi(
-                    mouse_angle
-                    - self._guide_last_mouse_angle
-                )
+            if event.shift:
+                angle_delta *= 1.0 / 30.0
 
-                if event.shift:
-                    angle_delta *= 0.1
+            self._guide_total_angle += angle_delta
+            self._guide_previous_mouse_2d = current_mouse.copy()
 
-                self._guide_total_angle += angle_delta
-                self._guide_last_mouse_angle = mouse_angle
-
-            angle = self._guide_total_angle
-
-            if event.ctrl:
-                angle = (
-                    round(angle / ROTATE_SNAP_STEP)
-                    * ROTATE_SNAP_STEP
-                )
-
+            angle = self._get_applied_mouse_angle(context, self._guide_total_angle, event.ctrl)
             _ROTATE_GUIDE_TOTAL_ANGLE = angle
 
             self._update_header_text(context, angle)
