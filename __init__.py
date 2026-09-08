@@ -159,16 +159,22 @@ _TRANSLATE_GHOST_START_LOC = None
 _TRANSLATE_GHOST_START_ORIENT = None
 _TRANSLATE_ACTIVE_ORIENT = None
 
-# Rotation modal state
-_ROTATE_ACTIVE_ORIENT = None
-_ROTATE_ACTIVE_VIEW = None
-_ROTATE_GUIDE_START_ANGLE = 0.0
-_ROTATE_GUIDE_TOTAL_ANGLE = 0.0
-_ROTATE_GUIDE_CTRL_PRESSED = False
-_ROTATE_TRACKBALL_HANDOFF = None
+class RotationDrawState:
+    """Shared state used by the rotation modal and gizmo drawing."""
 
-# MMB axis-pickup state
-_ROTATE_MMB_HELD = False
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.active_orient = None
+        self.active_view = None
+        self.start_angle = 0.0
+        self.total_angle = 0.0
+        self.snap_active = False
+        self.mmb_held = False
+
+_ROTATE_DRAW_STATE = RotationDrawState()
+_ROTATE_TRACKBALL_HANDOFF = None
 
 # Previous constraint restored when leaving trackball rotation
 _ROTATE_PREVIOUS_AXIS = None
@@ -1113,6 +1119,29 @@ def _build_screen_space_ring_basis(
     return basis_x_2d, basis_y_2d
 
 
+def _build_rotation_dial_basis(context, center, axis, mouse):
+    """Build a Blender-style rotation dial basis from the initial mouse position."""
+    rv3d = context.region_data
+    ray_origin = view3d_utils.region_2d_to_origin_3d(context.region, rv3d, mouse)
+    ray_direction = view3d_utils.region_2d_to_vector_3d(context.region, rv3d, mouse)
+
+    denominator = ray_direction.dot(axis)
+    direction = ray_origin + ray_direction * ((center - ray_origin).dot(axis) / denominator) - center if abs(denominator) > 1e-8 else axis.orthogonal()
+
+    if direction.length <= 1e-8:
+        direction = axis.orthogonal()
+
+    y_axis = direction.normalized()
+    x_axis = y_axis.cross(axis).normalized()
+
+    basis = Matrix.Identity(4)
+    basis.col[0].xyz = x_axis
+    basis.col[1].xyz = y_axis
+    basis.col[2].xyz = axis
+    basis.translation = center
+    return basis
+
+
 def _project_axis_dir_2d(context, center_3d, axis_vector):
     """Project a 3D axis into a normalized screen-space direction."""
     center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d)
@@ -1195,7 +1224,7 @@ def _draw_shortcut_axis_line(operator):
     if gizmo_draws_axis_lines:
         return
 
-    if _ROTATE_MMB_HELD:
+    if _ROTATE_DRAW_STATE.mmb_held:
         axes_to_draw = ("X", "Y", "Z")
     elif operator.axis in {"X", "Y", "Z"}:
         axes_to_draw = (operator.axis,)
@@ -1229,7 +1258,7 @@ def _draw_shortcut_axis_line(operator):
     shader.uniform_float("lineWidth", scaled_line_width)
 
     for axis in axes_to_draw:
-        if _ROTATE_MMB_HELD:
+        if _ROTATE_DRAW_STATE.mmb_held:
             direction_2d = operator._mmb_axis_dirs_2d.get(axis)
         else:
             axis_index = AXIS_INDEX[axis]
@@ -1535,64 +1564,40 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._using_alternate_orient = False
         self._start_view = get_view_rot_matrix(context).copy()
 
-        global _ROTATE_ACTIVE_ORIENT
-        global _ROTATE_ACTIVE_VIEW
+        _ROTATE_DRAW_STATE.active_orient = self._start_orient.copy()
+        _ROTATE_DRAW_STATE.active_view = self._start_view.copy()
 
-        _ROTATE_ACTIVE_ORIENT = self._start_orient.copy()
-        _ROTATE_ACTIVE_VIEW = self._start_view.copy()
-
-        self._guide_center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region,
-            context.region_data,
-            self._start_loc,
-        )
-        self._guide_mouse_2d = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        self._guide_center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, self._start_loc)
+        self._guide_mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
         self._guide_start_mouse_2d = self._guide_mouse_2d.copy()
 
-        gizmo_size = max(
-            context.preferences.view.gizmo_size,
-            1,
+        self._guide_dial_basis = _build_rotation_dial_basis(
+            context, self._start_loc, self._get_frozen_axis_vector(), self._guide_start_mouse_2d
         )
+
+        gizmo_size = max(context.preferences.view.gizmo_size, 1)
 
         if self.axis == "VIEW":
             ring_matrix = self._start_view.copy()
-            pixel_radius = (
-                gizmo_size
-                * ROTATE_VIEW_RING_PIXEL_RADIUS
-            )
+            pixel_radius = gizmo_size * ROTATE_VIEW_RING_PIXEL_RADIUS
         else:
-            ring_matrix = (
-                self._get_active_orient()
-                @ AXIS_ROT[self.axis]
-            )
-            pixel_radius = (
-                gizmo_size
-                * ROTATE_RING_PIXEL_RADIUS
-            )
+            ring_matrix = self._get_active_orient() @ AXIS_ROT[self.axis]
+            pixel_radius = gizmo_size * ROTATE_RING_PIXEL_RADIUS
 
-        (
-            self._guide_basis_x_2d,
-            self._guide_basis_y_2d,
-        ) = _build_screen_space_ring_basis(
-            context,
-            self._guide_center_2d,
-            self._start_loc,
-            ring_matrix,
-            pixel_radius,
+        self._guide_basis_x_2d, self._guide_basis_y_2d = _build_screen_space_ring_basis(
+            context, self._guide_center_2d, self._start_loc, ring_matrix, pixel_radius
         )
 
-        self._guide_start_angle = 0.0
+        self._guide_start_angle = _ellipse_angle_from_mouse(
+            self._guide_center_2d, self._guide_start_mouse_2d,
+            self._guide_basis_x_2d, self._guide_basis_y_2d
+        ) or 0.0
+
         self._guide_total_angle = 0.0
         self._guide_previous_mouse_2d = self._guide_start_mouse_2d.copy()
 
-        global _ROTATE_GUIDE_START_ANGLE
-        global _ROTATE_GUIDE_TOTAL_ANGLE
-
-        _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
-        _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
+        _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
+        _ROTATE_DRAW_STATE.total_angle = 0.0
 
         self._guide_handler = (
             bpy.types.SpaceView3D.draw_handler_add(
@@ -1610,13 +1615,14 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         window_manager = context.window_manager
         window_manager.cursortransform_active_rotate_axis = self.axis
-        window_manager.modal_handler_add(self)
 
         self._numeric = NumericInputState(component_count=1)
-
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
 
+        self._update_header_text(context, 0.0)
+
+        window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     def _remove_guide_handler(self):
@@ -1628,25 +1634,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             )
             self._guide_handler = None
 
-        global _ROTATE_ACTIVE_ORIENT
-        global _ROTATE_ACTIVE_VIEW
-
-        _ROTATE_ACTIVE_ORIENT = None
-        _ROTATE_ACTIVE_VIEW = None
-
-        global _ROTATE_GUIDE_START_ANGLE
-        global _ROTATE_GUIDE_TOTAL_ANGLE
-        global _ROTATE_GUIDE_CTRL_PRESSED
-
-        _ROTATE_GUIDE_START_ANGLE = 0.0
-        _ROTATE_GUIDE_TOTAL_ANGLE = 0.0
-        _ROTATE_GUIDE_CTRL_PRESSED = False
-
-        global _ROTATE_MMB_HELD
-        _ROTATE_MMB_HELD = False
-
-        global _ROTATE_PREVIOUS_AXIS
-        _ROTATE_PREVIOUS_AXIS = None
+        _ROTATE_DRAW_STATE.reset()
 
         self._guide_center_2d = None
         self._guide_mouse_2d = None
@@ -1706,75 +1694,54 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         )
 
     def _switch_axis_constraint(self, context, event, new_axis, use_alternate_orient=False):
-        """Switch the active rotation constraint without resetting the transform."""
+        """Switch the rotation constraint without changing the cursor rotation."""
         if new_axis not in {"X", "Y", "Z", "VIEW"}:
             return
 
-        if (
-            self.axis == new_axis
-            and self._using_alternate_orient == use_alternate_orient
-        ):
+        if self.axis == new_axis and self._using_alternate_orient == use_alternate_orient:
             return
+
+        cursor = context.scene.cursor
+        current_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+
+        # Preserve the current transform and start new mouse input from here.
+        self._start_quat = get_cursor_quaternion(cursor)
+        self._start_euler_compat = cursor.rotation_euler.copy()
+        self._guide_total_angle = 0.0
+        self._guide_previous_mouse_2d = current_mouse.copy()
 
         self.axis = new_axis
         self._using_alternate_orient = use_alternate_orient
 
-        global _ROTATE_ACTIVE_ORIENT
-        _ROTATE_ACTIVE_ORIENT = self._get_active_orient().copy()
+        _ROTATE_DRAW_STATE.active_orient = self._get_active_orient().copy()
 
-        gizmo_size = max(
-            context.preferences.view.gizmo_size,
-            1,
-        )
+        gizmo_size = max(context.preferences.view.gizmo_size, 1)
 
         if self.axis == "VIEW":
             ring_matrix = self._start_view.copy()
-            pixel_radius = (
-                gizmo_size
-                * ROTATE_VIEW_RING_PIXEL_RADIUS
-            )
+            pixel_radius = gizmo_size * ROTATE_VIEW_RING_PIXEL_RADIUS
         else:
-            ring_matrix = (
-                self._get_active_orient()
-                @ AXIS_ROT[self.axis]
-            )
-            pixel_radius = (
-                gizmo_size
-                * ROTATE_RING_PIXEL_RADIUS
-            )
+            ring_matrix = self._get_active_orient() @ AXIS_ROT[self.axis]
+            pixel_radius = gizmo_size * ROTATE_RING_PIXEL_RADIUS
 
-        (
-            self._guide_basis_x_2d,
-            self._guide_basis_y_2d,
-        ) = _build_screen_space_ring_basis(
-            context,
-            self._guide_center_2d,
-            self._start_loc,
-            ring_matrix,
-            pixel_radius,
+        self._guide_basis_x_2d, self._guide_basis_y_2d = _build_screen_space_ring_basis(
+            context, self._guide_center_2d, self._start_loc, ring_matrix, pixel_radius
         )
 
-        current_mouse = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        self._guide_start_mouse_2d = current_mouse.copy()
+        self._guide_start_angle = _ellipse_angle_from_mouse(
+            self._guide_center_2d, self._guide_start_mouse_2d,
+            self._guide_basis_x_2d, self._guide_basis_y_2d
+        ) or 0.0
+
         self._guide_mouse_2d = current_mouse
 
-        self._guide_previous_mouse_2d = current_mouse.copy()
-
-        global _ROTATE_GUIDE_START_ANGLE
-        global _ROTATE_GUIDE_TOTAL_ANGLE
-
-        angle = self._get_applied_mouse_angle(context, self._guide_total_angle, event.ctrl)
-
-        _ROTATE_GUIDE_START_ANGLE = self._guide_start_angle
-        _ROTATE_GUIDE_TOTAL_ANGLE = angle
+        _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
+        _ROTATE_DRAW_STATE.total_angle = 0.0
 
         context.window_manager.cursortransform_active_rotate_axis = self.axis
 
-        self._apply_rotation(context, angle)
-        self._update_header_text(context, angle)
-
+        self._update_header_text(context, 0.0)
         tag_viewport_redraw(context)
 
     def _advance_axis_cycle(self, context, event, axis):
@@ -1855,7 +1822,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     def _enter_mmb_pickup(self, context, event):
         """Begin automatic axis selection with the middle mouse button."""
-        global _ROTATE_MMB_HELD
 
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
@@ -1869,18 +1835,11 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 .normalized()
             )
 
-            self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(
-                context,
-                self._start_loc,
-                world_axis,
-            )
+            self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(context, self._start_loc, world_axis)
 
-        _ROTATE_MMB_HELD = True
+        _ROTATE_DRAW_STATE.mmb_held = True
 
-        self._maybe_switch_axis_by_proximity(
-            context,
-            event,
-        )
+        self._maybe_switch_axis_by_proximity(context, event)
 
         tag_viewport_redraw(context)
 
@@ -1912,11 +1871,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     def _exit_mmb_pickup(self, context):
         """End middle-mouse axis selection."""
-        global _ROTATE_MMB_HELD
-
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
-        _ROTATE_MMB_HELD = False
+        _ROTATE_DRAW_STATE.mmb_held = False
 
         tag_viewport_redraw(context)
 
@@ -1942,10 +1899,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Handle constrained cursor rotation."""
-        global _ROTATE_GUIDE_TOTAL_ANGLE
-        global _ROTATE_GUIDE_CTRL_PRESSED
-
-        _ROTATE_GUIDE_CTRL_PRESSED = event.ctrl
+        _ROTATE_DRAW_STATE.snap_active = event.ctrl
 
         if event.value == 'PRESS':
             key = event.type
@@ -1993,7 +1947,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             if self._numeric.active:
                 angle = math.radians(self._numeric.value())
-                _ROTATE_GUIDE_TOTAL_ANGLE = angle
+                _ROTATE_DRAW_STATE.total_angle = angle
 
                 self._update_header_text(context, angle)
                 self._apply_rotation(context, angle)
@@ -2040,7 +1994,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._guide_previous_mouse_2d = current_mouse.copy()
 
             angle = self._get_applied_mouse_angle(context, self._guide_total_angle, event.ctrl)
-            _ROTATE_GUIDE_TOTAL_ANGLE = angle
+            _ROTATE_DRAW_STATE.total_angle = angle
 
             self._update_header_text(context, angle)
             self._apply_rotation(context, angle)
@@ -2110,8 +2064,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         self._mouse_accum = Vector((0.0, 0.0))
 
         # Freeze the view basis for the duration of the modal operation.
-        global _ROTATE_ACTIVE_VIEW
-        _ROTATE_ACTIVE_VIEW = self._start_view.copy()
+        _ROTATE_DRAW_STATE.active_view = self._start_view.copy()
 
         window_manager.cursortransform_active_rotate_axis = "FREE"
         context.window.cursor_modal_set('SCROLL_XY')
@@ -2124,20 +2077,16 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
     def _swap_to_view_rotation(self, context):
         """Return from trackball rotation to the previous rotation mode."""
-        global _ROTATE_ACTIVE_VIEW
         global _ROTATE_PREVIOUS_AXIS
 
         previous_axis = _ROTATE_PREVIOUS_AXIS
 
         cleanup_rotation_modal(context)
-        _ROTATE_ACTIVE_VIEW = None
+        _ROTATE_DRAW_STATE.active_view = None
         _ROTATE_PREVIOUS_AXIS = None
 
         if previous_axis in {"X", "Y", "Z"}:
-            bpy.ops.cursortransform.rotate_modal(
-                'INVOKE_DEFAULT',
-                axis=previous_axis,
-            )
+            bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis=previous_axis)
             return
 
         bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
@@ -2193,8 +2142,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update the trackball rotation and handle modal input."""
-        global _ROTATE_ACTIVE_VIEW
-
         if event.value == 'PRESS':
             key = event.type
 
@@ -2209,11 +2156,11 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
             if confirm:
                 cleanup_rotation_modal(context)
-                _ROTATE_ACTIVE_VIEW = None
+                _ROTATE_DRAW_STATE.active_view = None
                 return {'FINISHED'}
 
             if key == 'G' and not event.is_repeat:
-                _ROTATE_ACTIVE_VIEW = None
+                _ROTATE_DRAW_STATE.active_view = None
                 switch_native_rotate_to_translate(context)
                 return {'FINISHED'}
 
@@ -2226,7 +2173,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                     math.radians(self._numeric.value(0)),
                     math.radians(self._numeric.value(1)),
                 ))
-
                 self._apply_trackball_rotation(context, phi)
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
@@ -2238,15 +2184,8 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             if self._numeric.active:
                 return {'RUNNING_MODAL'}
 
-            current_mouse = Vector((
-                event.mouse_region_x,
-                event.mouse_region_y,
-            ))
-
-            mouse_delta = (
-                current_mouse
-                - self._previous_mouse_2d
-            )
+            current_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+            mouse_delta = current_mouse - self._previous_mouse_2d
             self._previous_mouse_2d = current_mouse
 
             if event.shift:
@@ -2260,49 +2199,26 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             ))
 
             if event.ctrl:
-                snap_step = ROTATE_SNAP_STEP
+                snap_step = ROTATE_SNAP_STEP * (0.2 if event.shift else 1.0)
+                phi.x = round(phi.x / snap_step) * snap_step
+                phi.y = round(phi.y / snap_step) * snap_step
 
-                if event.shift:
-                    snap_step *= 0.2
-
-                phi.x = (
-                    round(phi.x / snap_step)
-                    * snap_step
-                )
-                phi.y = (
-                    round(phi.y / snap_step)
-                    * snap_step
-                )
-
-            self._apply_trackball_rotation(
-                context,
-                phi,
-            )
-
+            self._apply_trackball_rotation(context, phi)
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
 
-        if (
-            event.type == 'LEFTMOUSE'
-            and event.value == 'RELEASE'
-        ):
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             cleanup_rotation_modal(context)
-            _ROTATE_ACTIVE_VIEW = None
+            _ROTATE_DRAW_STATE.active_view = None
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            restore_cursor_rotation(
-                context.scene.cursor,
-                self._rot_mode,
-                self._start_rot,
-            )
-
+            restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
             cleanup_rotation_modal(context)
-            _ROTATE_ACTIVE_VIEW = None
+            _ROTATE_DRAW_STATE.active_view = None
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Translation and Wrapper Operators
@@ -4363,10 +4279,6 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         """Prepare gizmo visibility, transforms, colors, and ghost states."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
-        global _ROTATE_ACTIVE_ORIENT
-        global _ROTATE_ACTIVE_VIEW
-        global _ROTATE_GUIDE_START_ANGLE
-        global _ROTATE_GUIDE_TOTAL_ANGLE
         global _TRANSLATE_ACTIVE_ORIENT
 
         cursor_location = context.scene.cursor.location
@@ -4391,38 +4303,21 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
         translate_basis = orientation
 
-        if (
-            translate_running
-            and _TRANSLATE_ACTIVE_ORIENT is not None
-        ):
+        if translate_running and _TRANSLATE_ACTIVE_ORIENT is not None:
             translate_basis = _TRANSLATE_ACTIVE_ORIENT
 
-        active_translate_axis = (
-            window_manager.cursortransform_active_translate_axis
-        )
-        active_rotate_axis = (
-            window_manager.cursortransform_active_rotate_axis
-        )
+        active_translate_axis = window_manager.cursortransform_active_translate_axis
+        active_rotate_axis = window_manager.cursortransform_active_rotate_axis
 
-        rotate_running = active_rotate_axis in {
-            "X",
-            "Y",
-            "Z",
-            "VIEW",
-            "FREE",
-        }
+        rotate_running = active_rotate_axis in {"X", "Y", "Z", "VIEW", "FREE"}
         free_rotate_running = active_rotate_axis == "FREE"
 
         # Hide custom gizmos while Blender handles rotation after an R-swap.
-        native_cursor_rotate_running = (
-            active_tool_is_cursor(context)
-            and native_rotate_modal_running(context)
-        )
+        native_cursor_rotate_running = active_tool_is_cursor(context) and native_rotate_modal_running(context)
 
         if native_cursor_rotate_running:
             for gizmo in self.gizmos:
                 gizmo.hide = True
-
             return
 
         if not translate_running and active_translate_axis:
@@ -4441,526 +4336,231 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         rotate_view_basis = view_matrix
 
         if rotate_running:
-            if _ROTATE_ACTIVE_ORIENT is not None:
-                rotate_basis = _ROTATE_ACTIVE_ORIENT
+            if _ROTATE_DRAW_STATE.active_orient is not None:
+                rotate_basis = _ROTATE_DRAW_STATE.active_orient
+            if _ROTATE_DRAW_STATE.active_view is not None:
+                rotate_view_basis = _ROTATE_DRAW_STATE.active_view
 
-            if _ROTATE_ACTIVE_VIEW is not None:
-                rotate_view_basis = _ROTATE_ACTIVE_VIEW
-
-        hide_rotation_while_moving = (
-            show_location
-            and show_rotation
-            and translate_running
-        )
-
-        active_axis_move = (
-            translate_running
-            and active_translate_axis in {"X", "Y", "Z"}
-        )
-        active_plane_move = (
-            translate_running
-            and active_translate_axis in {"XY", "XZ", "YZ"}
-        )
+        hide_rotation_while_moving = show_location and show_rotation and translate_running
+        active_axis_move = translate_running and active_translate_axis in {"X", "Y", "Z"}
+        active_plane_move = translate_running and active_translate_axis in {"XY", "XZ", "YZ"}
 
         # Translation arrows
         for axis, gizmo in self.move_arrows.items():
-            gizmo.hide = (not show_location) or rotate_running
+            gizmo.hide = not show_location or rotate_running
 
             if gizmo.hide:
                 continue
 
-            is_active_axis = (
-                translate_running
-                and active_translate_axis == axis
-            )
+            is_active_axis = translate_running and active_translate_axis == axis
 
             if not show_rotation:
                 arrow_length = 1.1
-                arrow_offset = Matrix.Translation(
-                    (0.0, 0.0, 0.22)
-                )
+                arrow_offset = Matrix.Translation((0.0, 0.0, 0.22))
             elif translate_running:
-                if is_active_axis:
-                    arrow_length = 1.35
-                    arrow_offset = Matrix.Translation(
-                        (0.0, 0.0, 0.06)
-                    )
-                else:
-                    arrow_length = 1.1
-                    arrow_offset = Matrix.Translation(
-                        (0.0, 0.0, 0.22)
-                    )
+                arrow_length = 1.35 if is_active_axis else 1.1
+                arrow_offset = Matrix.Translation((0.0, 0.0, 0.06 if is_active_axis else 0.22))
             else:
                 # Show only arrowheads while location and rotation are idle.
                 arrow_length = 0.0
-                arrow_offset = Matrix.Translation(
-                    (0.0, 0.0, 1.35)
-                )
+                arrow_offset = Matrix.Translation((0.0, 0.0, 1.35))
 
-            arrow_orientation = (
-                translate_basis
-                if is_active_axis
-                else orientation
-            )
-
-            axis_vector = (
-                arrow_orientation
-                .col[AXIS_INDEX[axis]]
-                .to_3d()
-            )
+            arrow_orientation = translate_basis if is_active_axis else orientation
+            axis_vector = arrow_orientation.col[AXIS_INDEX[axis]].to_3d()
 
             if is_active_axis:
                 axis_alpha = AXIS_ACTIVE_ALPHA
             else:
-                axis_alpha = (
-                    AXIS_IDLE_ALPHA
-                    * axis_view_alpha(
-                        context,
-                        axis_vector,
-                    )
-                )
+                axis_alpha = AXIS_IDLE_ALPHA * axis_view_alpha(context, axis_vector)
 
             self._apply_arrow(
-                gizmo,
-                location_matrix
-                @ arrow_orientation
-                @ AXIS_ROT[axis],
-                1.05,
-                arrow_length,
-                arrow_offset,
-                axis_colors[axis],
-                axis_alpha,
-                AXIS_ACTIVE_ALPHA,
+                gizmo, location_matrix @ arrow_orientation @ AXIS_ROT[axis],
+                1.05, arrow_length, arrow_offset,
+                axis_colors[axis], axis_alpha, AXIS_ACTIVE_ALPHA
             )
 
         # Translation plane handles
-        show_move_planes = (
-            show_location
-            and not show_rotation
-        )
+        show_move_planes = show_location and not show_rotation
 
         for plane, gizmo in self.move_planes.items():
-            is_active_plane = (
-                active_plane_move
-                and active_translate_axis == plane
-            )
+            is_active_plane = active_plane_move and active_translate_axis == plane
+            plane_orientation = translate_basis if is_active_plane else orientation
 
-            plane_orientation = (
-                translate_basis
-                if is_active_plane
-                else orientation
-            )
-
-            gizmo.hide = (
-                not show_move_planes
-                or rotate_running
-                or (
-                    translate_running
-                    and not is_active_plane
-                )
-            )
+            gizmo.hide = not show_move_planes or rotate_running or (translate_running and not is_active_plane)
 
             if gizmo.hide:
                 continue
 
             normal_axis = PLANE_NORMAL_AXIS[plane]
             plane_color = axis_colors[normal_axis]
+            plane_normal = plane_orientation.col[AXIS_INDEX[normal_axis]].to_3d()
+            plane_fade = plane_view_alpha(context, plane_normal)
 
-            plane_normal = (
-                plane_orientation
-                .col[AXIS_INDEX[normal_axis]]
-                .to_3d()
-            )
-
-            plane_fade = plane_view_alpha(
-                context,
-                plane_normal,
-            )
-
-            fill_alpha = (
-                PLANE_FILL_ALPHA
-                * plane_fade
-            )
-            outline_alpha = (
-                PLANE_OUTLINE_ALPHA
-                * plane_fade
-            )
-            hover_fill_alpha = (
-                PLANE_FILL_HOVER_ALPHA
-                * plane_fade
-            )
-            hover_outline_alpha = (
-                PLANE_OUTLINE_HOVER_ALPHA
-                * plane_fade
-            )
+            fill_alpha = PLANE_FILL_ALPHA * plane_fade
+            outline_alpha = PLANE_OUTLINE_ALPHA * plane_fade
+            hover_fill_alpha = PLANE_FILL_HOVER_ALPHA * plane_fade
+            hover_outline_alpha = PLANE_OUTLINE_HOVER_ALPHA * plane_fade
 
             self._apply_plane_square(
-                gizmo,
-                location_matrix @ plane_orientation,
-                (
-                    Matrix.Translation(
-                        PLANE_OFFSET[plane]
-                    )
-                    @ PLANE_ROT[plane]
-                ),
-                PLANE_SCALE_BASIS,
-                plane_color,
-                plane_color,
-                (
-                    hover_fill_alpha
-                    if is_active_plane
-                    else fill_alpha
-                ),
-                (
-                    hover_outline_alpha
-                    if is_active_plane
-                    else outline_alpha
-                ),
-                hover_fill_alpha,
-                hover_outline_alpha,
+                gizmo, location_matrix @ plane_orientation,
+                Matrix.Translation(PLANE_OFFSET[plane]) @ PLANE_ROT[plane],
+                PLANE_SCALE_BASIS, plane_color, plane_color,
+                hover_fill_alpha if is_active_plane else fill_alpha,
+                hover_outline_alpha if is_active_plane else outline_alpha,
+                hover_fill_alpha, hover_outline_alpha
             )
 
         # Free-move center handle
-        self.move_center.hide = (
-            not show_location
-            or active_axis_move
-            or active_plane_move
-            or rotate_running
-        )
+        self.move_center.hide = not show_location or active_axis_move or active_plane_move or rotate_running
 
         if not self.move_center.hide:
             self._apply_move_center(
-                self.move_center,
-                location_matrix @ view_matrix,
-                0.20,
-                center_color,
-                0.5,
-                1.0,
+                self.move_center, location_matrix @ view_matrix,
+                0.20, center_color, 0.5, 1.0
             )
 
         # Active translation center markers
         for axis, gizmo in self.axis_center_dots.items():
-            is_active_axis = (
-                show_location
-                and translate_running
-                and active_translate_axis == axis
-            )
+            is_active_axis = show_location and translate_running and active_translate_axis == axis
+            is_active_plane = show_location and active_plane_move and PLANE_NORMAL_AXIS.get(active_translate_axis) == axis
 
-            is_active_plane = (
-                show_location
-                and active_plane_move
-                and (
-                    PLANE_NORMAL_AXIS.get(
-                        active_translate_axis
-                    )
-                    == axis
-                )
-            )
-
-            gizmo.hide = not (
-                is_active_axis
-                or is_active_plane
-            )
+            gizmo.hide = not (is_active_axis or is_active_plane)
 
             if gizmo.hide:
                 continue
 
             self._apply_filled_dot(
-                gizmo,
-                location_matrix @ view_matrix,
-                1.35,
-                axis_colors[axis],
-                AXIS_ACTIVE_ALPHA,
+                gizmo, location_matrix @ view_matrix,
+                1.35, axis_colors[axis], AXIS_ACTIVE_ALPHA
             )
 
         # Translation ghosts
-        show_ghost_axis = (
-            active_axis_move
-            and _TRANSLATE_GHOST_START_LOC is not None
-            and _TRANSLATE_GHOST_START_ORIENT is not None
-        )
-
-        show_ghost_plane = (
-            active_plane_move
-            and _TRANSLATE_GHOST_START_LOC is not None
-            and _TRANSLATE_GHOST_START_ORIENT is not None
-        )
+        ghost_transform_available = _TRANSLATE_GHOST_START_LOC is not None and _TRANSLATE_GHOST_START_ORIENT is not None
+        show_ghost_axis = active_axis_move and ghost_transform_available
+        show_ghost_plane = active_plane_move and ghost_transform_available
 
         self.ghost_move_arrow.hide = not show_ghost_axis
-        self.ghost_center_dot.hide = not (
-            show_ghost_axis
-            or show_ghost_plane
-        )
+        self.ghost_center_dot.hide = not (show_ghost_axis or show_ghost_plane)
 
         for plane, gizmo in self.ghost_move_planes.items():
-            gizmo.hide = not (
-                show_ghost_plane
-                and active_translate_axis == plane
-            )
+            gizmo.hide = not (show_ghost_plane and active_translate_axis == plane)
 
         ghost_color = (0.50, 0.50, 0.50)
 
         if show_ghost_plane:
-            ghost_location_matrix = Matrix.Translation(
-                _TRANSLATE_GHOST_START_LOC
-            )
-            ghost_orientation = (
-                _TRANSLATE_GHOST_START_ORIENT
-            )
+            ghost_location_matrix = Matrix.Translation(_TRANSLATE_GHOST_START_LOC)
+            ghost_orientation = _TRANSLATE_GHOST_START_ORIENT
             ghost_plane = active_translate_axis
-            ghost_gizmo = self.ghost_move_planes[
-                ghost_plane
-            ]
+            ghost_gizmo = self.ghost_move_planes[ghost_plane]
 
             self._apply_filled_dot(
-                self.ghost_center_dot,
-                ghost_location_matrix @ view_matrix,
-                1.35,
-                ghost_color,
-                GHOST_AXIS_ALPHA,
+                self.ghost_center_dot, ghost_location_matrix @ view_matrix,
+                1.35, ghost_color, GHOST_AXIS_ALPHA
             )
 
             self._apply_plane_square(
-                ghost_gizmo,
-                (
-                    ghost_location_matrix
-                    @ ghost_orientation
-                ),
-                (
-                    Matrix.Translation(
-                        PLANE_OFFSET[ghost_plane]
-                    )
-                    @ PLANE_ROT[ghost_plane]
-                ),
-                PLANE_SCALE_BASIS,
-                ghost_color,
-                ghost_color,
-                GHOST_PLANE_FILL_ALPHA,
-                GHOST_PLANE_OUTLINE_ALPHA,
-                GHOST_PLANE_FILL_ALPHA,
-                GHOST_PLANE_OUTLINE_ALPHA,
+                ghost_gizmo, ghost_location_matrix @ ghost_orientation,
+                Matrix.Translation(PLANE_OFFSET[ghost_plane]) @ PLANE_ROT[ghost_plane],
+                PLANE_SCALE_BASIS, ghost_color, ghost_color,
+                GHOST_PLANE_FILL_ALPHA, GHOST_PLANE_OUTLINE_ALPHA,
+                GHOST_PLANE_FILL_ALPHA, GHOST_PLANE_OUTLINE_ALPHA
             )
 
         if show_ghost_axis:
-            ghost_location_matrix = Matrix.Translation(
-                _TRANSLATE_GHOST_START_LOC
-            )
-            ghost_orientation = (
-                _TRANSLATE_GHOST_START_ORIENT
-            )
+            ghost_location_matrix = Matrix.Translation(_TRANSLATE_GHOST_START_LOC)
+            ghost_orientation = _TRANSLATE_GHOST_START_ORIENT
 
             self._apply_arrow(
                 self.ghost_move_arrow,
-                (
-                    ghost_location_matrix
-                    @ ghost_orientation
-                    @ AXIS_ROT[active_translate_axis]
-                ),
-                1.05,
-                1.35,
-                Matrix.Translation(
-                    (0.0, 0.0, 0.06)
-                ),
-                ghost_color,
-                GHOST_AXIS_ALPHA,
-                GHOST_AXIS_ALPHA,
+                ghost_location_matrix @ ghost_orientation @ AXIS_ROT[active_translate_axis],
+                1.05, 1.35, Matrix.Translation((0.0, 0.0, 0.06)),
+                ghost_color, GHOST_AXIS_ALPHA, GHOST_AXIS_ALPHA
             )
 
             self._apply_filled_dot(
-                self.ghost_center_dot,
-                ghost_location_matrix @ view_matrix,
-                1.35,
-                ghost_color,
-                GHOST_AXIS_ALPHA,
+                self.ghost_center_dot, ghost_location_matrix @ view_matrix,
+                1.35, ghost_color, GHOST_AXIS_ALPHA
             )
 
-        show_ghost_move_center = (
-            translate_running
-            and active_translate_axis == ""
-            and _TRANSLATE_GHOST_START_LOC is not None
-        )
-
-        self.ghost_move_center.hide = not (
-            show_ghost_move_center
-        )
+        show_ghost_move_center = translate_running and active_translate_axis == "" and _TRANSLATE_GHOST_START_LOC is not None
+        self.ghost_move_center.hide = not show_ghost_move_center
 
         if show_ghost_move_center:
-            ghost_location_matrix = Matrix.Translation(
-                _TRANSLATE_GHOST_START_LOC
-            )
+            ghost_location_matrix = Matrix.Translation(_TRANSLATE_GHOST_START_LOC)
 
             self._apply_move_center(
-                self.ghost_move_center,
-                ghost_location_matrix @ view_matrix,
-                0.20,
-                ghost_color,
-                GHOST_AXIS_ALPHA,
-                GHOST_AXIS_ALPHA,
+                self.ghost_move_center, ghost_location_matrix @ view_matrix, 0.20,
+                ghost_color, GHOST_AXIS_ALPHA, GHOST_AXIS_ALPHA
             )
 
         # Free-rotation hover disc
-        show_rotate_free_disc = (
-            show_rotation
-            and not hide_rotation_while_moving
-            and not rotate_running
-        )
-
-        self.rotate_free_disc.hide = not (
-            show_rotate_free_disc
-        )
+        show_rotate_free_disc = show_rotation and not hide_rotation_while_moving and not rotate_running
+        self.rotate_free_disc.hide = not show_rotate_free_disc
 
         if show_rotate_free_disc:
-            disc_scale = (
-                1.20
-                * FREE_ROTATE_DISC_SCALE_FACTOR
-            )
+            disc_scale = 1.20 * FREE_ROTATE_DISC_SCALE_FACTOR
 
             self._apply_rotate_disc(
-                self.rotate_free_disc,
-                location_matrix @ rotate_view_basis,
-                disc_scale,
-                (1.0, 1.0, 1.0),
-                0.0,
-                FREE_ROTATE_DISC_HOVER_ALPHA,
+                self.rotate_free_disc, location_matrix @ rotate_view_basis, disc_scale,
+                (1.0, 1.0, 1.0), 0.0, FREE_ROTATE_DISC_HOVER_ALPHA
             )
 
         # Active rotation sector
-        show_rotate_sector = (
-            rotate_running
-            and not free_rotate_running
-        )
-
-        self.rotate_sector.hide = not (
-            show_rotate_sector
-        )
+        show_rotate_sector = rotate_running and not free_rotate_running
+        self.rotate_sector.hide = not show_rotate_sector
 
         if show_rotate_sector:
             if active_rotate_axis == "VIEW":
-                sector_basis = (
-                    location_matrix
-                    @ rotate_view_basis
-                )
-                sector_scale = (
-                    1.20
-                    * ROTATE_VIEW_SECTOR_SCALE_FACTOR
-                )
+                sector_basis = location_matrix @ rotate_view_basis
+                sector_scale = 1.20 * ROTATE_VIEW_SECTOR_SCALE_FACTOR
                 sector_color = center_color
-                start_width = (
-                    ROTATE_VIEW_SECTOR_START_RADIUS_WIDTH
-                )
-                end_width = (
-                    ROTATE_VIEW_SECTOR_END_RADIUS_WIDTH
-                )
+                start_width = ROTATE_VIEW_SECTOR_START_RADIUS_WIDTH
+                end_width = ROTATE_VIEW_SECTOR_END_RADIUS_WIDTH
             else:
-                sector_basis = (
-                    location_matrix
-                    @ rotate_basis
-                    @ AXIS_ROT[active_rotate_axis]
-                )
-                sector_scale = (
-                    1.02
-                    * ROTATE_SECTOR_SCALE_FACTOR
-                )
-                sector_color = axis_colors[
-                    active_rotate_axis
-                ]
-                start_width = (
-                    ROTATE_SECTOR_START_RADIUS_WIDTH
-                )
-                end_width = (
-                    ROTATE_SECTOR_END_RADIUS_WIDTH
-                )
+                sector_basis = location_matrix @ rotate_basis @ AXIS_ROT[active_rotate_axis]
+                sector_scale = 1.02 * ROTATE_SECTOR_SCALE_FACTOR
+                sector_color = axis_colors[active_rotate_axis]
+                start_width = ROTATE_SECTOR_START_RADIUS_WIDTH
+                end_width = ROTATE_SECTOR_END_RADIUS_WIDTH
 
             self.rotate_sector.matrix_basis = sector_basis
             self.rotate_sector.scale_basis = sector_scale
-            self.rotate_sector.start_angle = (
-                _ROTATE_GUIDE_START_ANGLE
-            )
-            self.rotate_sector.total_angle = (
-                _ROTATE_GUIDE_TOTAL_ANGLE
-            )
+            self.rotate_sector.start_angle = _ROTATE_DRAW_STATE.start_angle
+            self.rotate_sector.total_angle = -_ROTATE_DRAW_STATE.total_angle
             self.rotate_sector.radius_color = sector_color
-            self.rotate_sector.fill_alpha = (
-                ROTATE_SECTOR_FILL_COLOR[3]
-            )
+            self.rotate_sector.fill_alpha = ROTATE_SECTOR_FILL_COLOR[3]
             self.rotate_sector.start_width = start_width
             self.rotate_sector.end_width = end_width
 
         # Rotation constraint axis lines
         for axis, gizmo in self.axis_lines.items():
-            show_axis_line = (
-                rotate_running
-                and (
-                    _ROTATE_MMB_HELD
-                    or active_rotate_axis == axis
-                )
-            )
-
+            show_axis_line = rotate_running and (_ROTATE_DRAW_STATE.mmb_held or active_rotate_axis == axis)
             gizmo.hide = not show_axis_line
 
             if gizmo.hide:
                 continue
 
-            if (
-                _ROTATE_MMB_HELD
-                and axis != active_rotate_axis
-            ):
-                alpha = (
-                    ROTATE_MMB_AXIS_LINE_DIM_ALPHA
-                )
-            else:
-                alpha = 1.0
+            alpha = ROTATE_MMB_AXIS_LINE_DIM_ALPHA if _ROTATE_DRAW_STATE.mmb_held and axis != active_rotate_axis else 1.0
+            highlighted_color = axis_highlight_color(axis_colors[axis])
 
-            highlighted_color = axis_highlight_color(
-                axis_colors[axis]
-            )
-
-            gizmo.matrix_basis = (
-                location_matrix
-                @ rotate_basis
-                @ AXIS_ROT[axis]
-            )
+            gizmo.matrix_basis = location_matrix @ rotate_basis @ AXIS_ROT[axis]
             gizmo.scale_basis = 1.0
-            gizmo.line_width = (
-                ROTATE_CONSTRAINT_LINE_WIDTH
-            )
-            gizmo.axis_color = (
-                highlighted_color[0],
-                highlighted_color[1],
-                highlighted_color[2],
-                alpha,
-            )
+            gizmo.line_width = ROTATE_CONSTRAINT_LINE_WIDTH
+            gizmo.axis_color = (*highlighted_color[:3], alpha)
 
         # Rotation snap ticks
-        show_rotate_ticks = (
-            show_rotate_sector
-            and _ROTATE_GUIDE_CTRL_PRESSED
-        )
-
+        show_rotate_ticks = show_rotate_sector and _ROTATE_DRAW_STATE.snap_active
         self.rotate_ticks.hide = not show_rotate_ticks
 
         if show_rotate_ticks:
             if active_rotate_axis == "VIEW":
-                ticks_basis = (
-                    location_matrix
-                    @ rotate_view_basis
-                )
+                ticks_basis = location_matrix @ rotate_view_basis
                 ticks_scale = 1.20
-                tick_offset = (
-                    ROTATE_VIEW_TICK_OFFSET_LOCAL
-                )
-                tick_length = (
-                    ROTATE_VIEW_TICK_LENGTH_LOCAL
-                )
-                tick_width = (
-                    ROTATE_VIEW_TICK_WIDTH_PX
-                )
+                tick_offset = ROTATE_VIEW_TICK_OFFSET_LOCAL
+                tick_length = ROTATE_VIEW_TICK_LENGTH_LOCAL
+                tick_width = ROTATE_VIEW_TICK_WIDTH_PX
             else:
-                ticks_basis = (
-                    location_matrix
-                    @ rotate_basis
-                    @ AXIS_ROT[active_rotate_axis]
-                )
+                ticks_basis = location_matrix @ rotate_basis @ AXIS_ROT[active_rotate_axis]
                 ticks_scale = 1.0
                 tick_offset = ROTATE_TICK_OFFSET_LOCAL
                 tick_length = ROTATE_TICK_LENGTH_LOCAL
@@ -4968,97 +4568,48 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
             self.rotate_ticks.matrix_basis = ticks_basis
             self.rotate_ticks.scale_basis = ticks_scale
-            self.rotate_ticks.start_angle = (
-                _ROTATE_GUIDE_START_ANGLE
-            )
+            self.rotate_ticks.start_angle = _ROTATE_DRAW_STATE.start_angle
             self.rotate_ticks.tick_offset = tick_offset
             self.rotate_ticks.tick_length = tick_length
             self.rotate_ticks.tick_width = tick_width
-            self.rotate_ticks.tick_color = (
-                ROTATE_TICK_COLOR
-            )
+            self.rotate_ticks.tick_color = ROTATE_TICK_COLOR
 
         # Axis rotation rings
         for axis, gizmo in self.rotate_rings.items():
-            is_active_axis = (
-                rotate_running
-                and active_rotate_axis == axis
-            )
-
-            draw_options = (
-                set()
-                if is_active_axis
-                else {'CLIP'}
-            )
+            is_active_axis = rotate_running and active_rotate_axis == axis
+            draw_options = set() if is_active_axis else {'CLIP'}
 
             gizmo.hide = (
-                (
-                    not show_rotation
-                    and not is_active_axis
-                )
+                (not show_rotation and not is_active_axis)
                 or hide_rotation_while_moving
-                or (
-                    rotate_running
-                    and not is_active_axis
-                )
+                or (rotate_running and not is_active_axis)
             )
 
             if gizmo.hide:
                 continue
 
-            ring_basis = (
-                rotate_basis
-                if is_active_axis
-                else orientation
-            )
+            ring_basis = rotate_basis if is_active_axis else orientation
 
             self._apply_rotate_ring(
-                gizmo,
-                (
-                    location_matrix
-                    @ ring_basis
-                    @ AXIS_ROT[axis]
-                ),
-                1.0,
-                axis_colors[axis],
-                (
-                    AXIS_ACTIVE_ALPHA
-                    if is_active_axis
-                    else AXIS_IDLE_ALPHA
-                ),
-                AXIS_ACTIVE_ALPHA,
-                draw_options,
+                gizmo, location_matrix @ ring_basis @ AXIS_ROT[axis],
+                1.0, axis_colors[axis],
+                AXIS_ACTIVE_ALPHA if is_active_axis else AXIS_IDLE_ALPHA,
+                AXIS_ACTIVE_ALPHA, draw_options
             )
 
         # View rotation ring
         self.view_ring.hide = (
-            (
-                not show_rotation
-                and active_rotate_axis != "VIEW"
-            )
+            (not show_rotation and active_rotate_axis != "VIEW")
             or hide_rotation_while_moving
-            or (
-                rotate_running
-                and active_rotate_axis != "VIEW"
-            )
+            or (rotate_running and active_rotate_axis != "VIEW")
         )
 
         if not self.view_ring.hide:
             self._apply_rotate_ring(
-                self.view_ring,
-                (
-                    location_matrix
-                    @ rotate_view_basis
-                ),
-                1.20,
-                center_color,
-                (
-                    AXIS_ACTIVE_ALPHA
-                    if active_rotate_axis == "VIEW"
-                    else 0.5
-                ),
-                AXIS_ACTIVE_ALPHA,
-                self.view_ring.draw_options,
+                self.view_ring, location_matrix @ rotate_view_basis,
+                1.20, center_color,
+                AXIS_ACTIVE_ALPHA if active_rotate_axis == "VIEW" else 0.5,
+                AXIS_ACTIVE_ALPHA, self.view_ring.draw_options
             )
 
 
