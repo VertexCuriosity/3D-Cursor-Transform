@@ -139,6 +139,7 @@ FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR = 0.36
 
 # Rotation snapping and tick marks
 ROTATE_SNAP_STEP = math.radians(5.0)
+ROTATE_SNAP_PRECISION_STEP = math.radians(1.0)
 ROTATE_TICK_COLOR = (1.0, 1.0, 1.0, 0.95)
 
 # Tick geometry
@@ -1660,12 +1661,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         axis_index = AXIS_INDEX[self.axis]
         return self._get_active_orient().col[axis_index].to_3d().normalized()
 
-    def _get_applied_mouse_angle(self, context, angle, snap=False):
+    def _get_applied_mouse_angle(self, context, angle, snap=False, precision=False):
         """Apply Blender's mouse-driven rotation direction and snapping."""
         if _axis_points_to_screen(context, self._start_loc, self._get_frozen_axis_vector()):
             angle = -angle
 
-        return round(angle / ROTATE_SNAP_STEP) * ROTATE_SNAP_STEP if snap else angle
+        if not snap:
+            return angle
+
+        snap_step = ROTATE_SNAP_PRECISION_STEP if precision else ROTATE_SNAP_STEP
+        return round(angle / snap_step) * snap_step
 
     def _format_angle(self, value):
         return f"{value:g}\u00b0"
@@ -1725,7 +1730,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         ) or 0.0
 
         angle = self._get_applied_mouse_angle(
-            context, self._guide_total_angle, event.ctrl
+            context, self._guide_total_angle, event.ctrl, event.shift
         )
 
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
@@ -1987,7 +1992,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._guide_total_angle += angle_delta
             self._guide_previous_mouse_2d = current_mouse.copy()
 
-            angle = self._get_applied_mouse_angle(context, self._guide_total_angle, event.ctrl)
+            angle = self._get_applied_mouse_angle(
+                context, self._guide_total_angle, event.ctrl, event.shift
+            )
             _ROTATE_DRAW_STATE.total_angle = angle
 
             self._update_header_text(context, angle)
@@ -2193,7 +2200,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             ))
 
             if event.ctrl:
-                snap_step = ROTATE_SNAP_STEP * (0.2 if event.shift else 1.0)
+                snap_step = ROTATE_SNAP_PRECISION_STEP if event.shift else ROTATE_SNAP_STEP
                 phi.x = round(phi.x / snap_step) * snap_step
                 phi.y = round(phi.y / snap_step) * snap_step
 
