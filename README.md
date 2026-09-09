@@ -19,7 +19,7 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 - Reset the 3D Cursor's location and rotation using **Alt + G** and **Alt + R**.
 - Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
 - Use **plane constraints** with **Shift + X**, **Y**, and **Z**.
-- Support for **numeric input** for precise transformations.
+- Support for **numeric input** and **Arrow key** adjustments for precise transformations.
 - Hold **Shift** for precision mode.
 - Use Blender's built-in **snapping** system.
 - Transform the 3D Cursor using dedicated **move** and **rotate gizmos**.
@@ -75,7 +75,7 @@ Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo*
 
 ### Precision and Snapping
 
-During a transform, enter numeric values for precise transformations, hold **Shift** for precision mode, or use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
+During a transform, use the **Arrow keys** to make small adjustments, enter numeric values for precise transformations, or hold **Shift** for precision mode. Use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
 
 For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
 
