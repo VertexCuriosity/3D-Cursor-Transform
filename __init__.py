@@ -4821,7 +4821,11 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self.rotate_sector.matrix_basis = sector_basis
             self.rotate_sector.scale_basis = sector_scale
             self.rotate_sector.start_angle = _ROTATE_DRAW_STATE.start_angle
-            self.rotate_sector.total_angle = -_ROTATE_DRAW_STATE.total_angle
+            self.rotate_sector.total_angle = (
+                -_ROTATE_DRAW_STATE.total_angle
+                if active_rotate_axis == "VIEW"
+                else _ROTATE_DRAW_STATE.total_angle
+            )
             self.rotate_sector.radius_color = sector_color
             self.rotate_sector.fill_alpha = ROTATE_SECTOR_FILL_COLOR[3]
             self.rotate_sector.start_width = start_width
