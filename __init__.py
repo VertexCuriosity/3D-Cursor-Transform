@@ -2522,6 +2522,35 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
         self._update_header_text(context, phi)
 
+    def _apply_arrow_input(self, context, event):
+        """Apply one screen-pixel step through the trackball input."""
+        directions = {
+            'LEFT_ARROW': (-1.0, 0.0),
+            'RIGHT_ARROW': (1.0, 0.0),
+            'UP_ARROW': (0.0, 1.0),
+            'DOWN_ARROW': (0.0, -1.0),
+        }
+
+        mouse_delta = Vector(directions[event.type])
+
+        if event.shift:
+            mouse_delta *= 1.0 / 30.0
+
+        self._mouse_accum += mouse_delta
+
+        phi = Vector((
+            -self._mouse_accum.y * 0.01,
+            self._mouse_accum.x * 0.01,
+        ))
+
+        if event.ctrl:
+            snap_step = ROTATE_SNAP_PRECISION_STEP if event.shift else ROTATE_SNAP_STEP
+            phi.x = round(phi.x / snap_step) * snap_step
+            phi.y = round(phi.y / snap_step) * snap_step
+
+        self._apply_trackball_rotation(context, phi)
+        tag_viewport_redraw(context)
+
     def modal(self, context, event):
         """Update the trackball rotation and handle modal input."""
         if event.value == 'PRESS':
@@ -2578,6 +2607,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             if key == 'R' and not event.is_repeat:
                 self._swap_to_view_rotation(context)
                 return {'FINISHED'}
+
+            if key in {'LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW'}:
+                self._apply_arrow_input(context, event)
+                return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             current_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
