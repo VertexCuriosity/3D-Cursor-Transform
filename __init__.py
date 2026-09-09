@@ -85,7 +85,7 @@ _NUMERIC_DIGIT_MAP = {
 }
 
 # Shared gizmo opacity
-AXIS_IDLE_ALPHA = 0.5
+AXIS_IDLE_ALPHA = 0.6
 AXIS_ACTIVE_ALPHA = 1.0
 
 GHOST_AXIS_ALPHA = 0.5
@@ -114,12 +114,10 @@ ROTATE_GUIDE_SHADOW_LINE_WIDTH = 1.0
 TRACKBALL_CURSOR_LINE_WIDTH = 2.0
 
 # Rotation sector visuals
-ROTATE_SECTOR_FILL_COLOR = (1.0, 1.0, 1.0, 0.15)
+ROTATE_SECTOR_FILL_COLOR = (0.8, 0.8, 0.8, 0.2)
 ROTATE_SECTOR_STEPS = 64
-ROTATE_SECTOR_START_RADIUS_WIDTH = 0.75
-ROTATE_SECTOR_END_RADIUS_WIDTH = 2.0
-ROTATE_VIEW_SECTOR_START_RADIUS_WIDTH = 0.5
-ROTATE_VIEW_SECTOR_END_RADIUS_WIDTH = 1.75
+ROTATE_SECTOR_START_RADIUS_WIDTH = 1.0
+ROTATE_SECTOR_END_RADIUS_WIDTH = 3.0
 
 # Rotation guide sizing
 ROTATE_RING_PIXEL_RADIUS = 2.12
@@ -136,8 +134,8 @@ ROTATE_MMB_AXIS_LINE_DIM_ALPHA = 0.35
 # Rotation ring and free-rotate layout
 ROTATE_SECTOR_SCALE_FACTOR = 0.97
 ROTATE_VIEW_SECTOR_SCALE_FACTOR = 0.99
-FREE_ROTATE_DISC_SCALE_FACTOR = 0.85
-FREE_ROTATE_DISC_HOVER_ALPHA = 0.03
+FREE_ROTATE_DISC_SCALE_FACTOR = 1.0
+FREE_ROTATE_DISC_ALPHA_FACTOR = 0.05
 FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR = 0.36
 
 # Rotation snapping and tick marks
@@ -770,36 +768,6 @@ def _build_sector_fan_vertices(start_angle, end_angle, steps):
     return vertices
 
 
-def _build_radius_quad_vertices(angle, width):
-    """Build triangle vertices for a thin sector-radius marker."""
-    half_width = width * 0.01
-
-    direction = Vector((
-        math.cos(angle),
-        math.sin(angle),
-        0.0,
-    ))
-    normal = Vector((
-        -direction.y,
-        direction.x,
-        0.0,
-    )) * half_width
-
-    start_left = Vector((0.0, 0.0, 0.0)) - normal
-    start_right = Vector((0.0, 0.0, 0.0)) + normal
-    end_right = direction + normal
-    end_left = direction - normal
-
-    return [
-        tuple(start_left),
-        tuple(start_right),
-        tuple(end_right),
-        tuple(start_left),
-        tuple(end_right),
-        tuple(end_left),
-    ]
-
-
 def _build_circle_fan_vertices(radius, segments):
     """Build triangle vertices for a filled circle."""
     vertices = []
@@ -823,6 +791,24 @@ def _build_circle_fan_vertices(radius, segments):
         vertices.extend((center, start_point, end_point))
 
     return vertices
+
+
+def _draw_radius_line(angle, color, line_width):
+    """Draw a Blender-style rotation radius in pixel width."""
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (math.cos(angle), math.sin(angle), 0.0),
+    ]
+
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+    batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
+
+    shader.bind()
+    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+    shader.uniform_float("lineWidth", line_width * bpy.context.preferences.system.pixel_size)
+    shader.uniform_float("color", color)
+
+    batch.draw(shader)
 
 
 def _draw_dashed_line_2d(
@@ -4118,13 +4104,13 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
         start_width = float(getattr(self, "start_width", 1.0))
         end_width = float(getattr(self, "end_width", 1.0))
 
-        direction = 1.0 if total_angle >= 0.0 else -1.0
-        absolute_angle = abs(total_angle)
+        rotation_count = int(abs(total_angle) // math.tau)
+        remaining_angle = math.fmod(total_angle, math.tau)
 
-        full_turns = int(absolute_angle // math.tau)
-        remaining_angle = (
-            absolute_angle
-            - (full_turns * math.tau)
+        background_angle = (
+            math.tau - remaining_angle
+            if remaining_angle >= 0.0
+            else -(math.tau + remaining_angle)
         )
 
         radius_color = getattr(
@@ -4139,59 +4125,36 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
         original_color = self.color
         original_alpha = self.alpha
 
-        self.color = (1.0, 1.0, 1.0)
-        self.alpha = fill_alpha
+        self.color = ROTATE_SECTOR_FILL_COLOR[:3]
 
-        for _ in range(full_turns):
-            self.draw_custom_shape(
-                self._full_sector_shape
-            )
-
-        if remaining_angle > 1e-6:
-            end_angle = (
-                start_angle
-                + direction * remaining_angle
-            )
-
-            steps = max(
-                12,
-                int(
-                    ROTATE_SECTOR_STEPS
-                    * (remaining_angle / math.tau)
-                ),
-            )
-
-            partial_shape = self.new_custom_shape(
+        if rotation_count:
+            background_start = start_angle + remaining_angle
+            background_end = background_start + background_angle
+            background_shape = self.new_custom_shape(
                 'TRIS',
-                _build_sector_fan_vertices(
-                    start_angle,
-                    end_angle,
-                    steps,
-                ),
+                _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS),
             )
+            self.alpha = fill_alpha * rotation_count
+            self.draw_custom_shape(background_shape)
 
-            self.draw_custom_shape(partial_shape)
+        if abs(remaining_angle) > 1e-6:
+            steps = max(12, int(ROTATE_SECTOR_STEPS * abs(remaining_angle) / math.tau))
+            remainder_shape = self.new_custom_shape(
+                'TRIS',
+                _build_sector_fan_vertices(start_angle, start_angle + remaining_angle, steps),
+            )
+            self.alpha = fill_alpha * (rotation_count + 1)
+            self.draw_custom_shape(remainder_shape)
 
-        self.color = radius_color
-        self.alpha = 1.0
+        gpu.state.blend_set('ALPHA')
 
-        start_shape = self.new_custom_shape(
-            'TRIS',
-            _build_radius_quad_vertices(
-                start_angle,
-                start_width,
-            ),
-        )
-        self.draw_custom_shape(start_shape)
+        with gpu.matrix.push_pop():
+            gpu.matrix.multiply_matrix(self.matrix_world)
 
-        end_shape = self.new_custom_shape(
-            'TRIS',
-            _build_radius_quad_vertices(
-                start_angle + total_angle,
-                end_width,
-            ),
-        )
-        self.draw_custom_shape(end_shape)
+            _draw_radius_line(start_angle, (*radius_color[:3], 1.0), start_width)
+            _draw_radius_line(start_angle + total_angle, (*radius_color[:3], 1.0), end_width)
+
+        gpu.state.blend_set('NONE')
 
         self.color = original_color
         self.alpha = original_alpha
@@ -4575,8 +4538,8 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         )
         self.view_ring.use_tooltip = False
         self.view_ring.line_width = 2
-        self.view_ring.alpha = 0.5
-        self.view_ring.alpha_highlight = 1.0
+        self.view_ring.alpha = AXIS_IDLE_ALPHA
+        self.view_ring.alpha_highlight = AXIS_ACTIVE_ALPHA
         self.view_ring.target_set_operator(
             "cursortransform.rotate_view"
         )
@@ -4853,7 +4816,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         if not self.move_center.hide:
             self._apply_move_center(
                 self.move_center, location_matrix @ view_matrix,
-                0.20, center_color, 0.5, 1.0
+                0.20, center_color, AXIS_IDLE_ALPHA, AXIS_ACTIVE_ALPHA
             )
 
         # Active translation center markers
@@ -4935,11 +4898,12 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         self.rotate_free_disc.hide = not show_rotate_free_disc
 
         if show_rotate_free_disc:
-            disc_scale = 1.20 * FREE_ROTATE_DISC_SCALE_FACTOR
+            disc_scale = FREE_ROTATE_DISC_SCALE_FACTOR
 
             self._apply_rotate_disc(
                 self.rotate_free_disc, location_matrix @ rotate_view_basis, disc_scale,
-                (1.0, 1.0, 1.0), 0.0, FREE_ROTATE_DISC_HOVER_ALPHA
+                center_color, 0.0,
+                AXIS_IDLE_ALPHA * FREE_ROTATE_DISC_ALPHA_FACTOR
             )
 
         # Active rotation sector
@@ -4951,14 +4915,13 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                 sector_basis = location_matrix @ rotate_view_basis
                 sector_scale = 1.20 * ROTATE_VIEW_SECTOR_SCALE_FACTOR
                 sector_color = center_color
-                start_width = ROTATE_VIEW_SECTOR_START_RADIUS_WIDTH
-                end_width = ROTATE_VIEW_SECTOR_END_RADIUS_WIDTH
             else:
                 sector_basis = location_matrix @ rotate_basis @ AXIS_ROT[active_rotate_axis]
                 sector_scale = 1.02 * ROTATE_SECTOR_SCALE_FACTOR
                 sector_color = axis_colors[active_rotate_axis]
-                start_width = ROTATE_SECTOR_START_RADIUS_WIDTH
-                end_width = ROTATE_SECTOR_END_RADIUS_WIDTH
+
+            start_width = ROTATE_SECTOR_START_RADIUS_WIDTH
+            end_width = ROTATE_SECTOR_END_RADIUS_WIDTH
 
             self.rotate_sector.matrix_basis = sector_basis
             self.rotate_sector.scale_basis = sector_scale
@@ -5050,7 +5013,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self._apply_rotate_ring(
                 self.view_ring, location_matrix @ rotate_view_basis,
                 1.20, center_color,
-                AXIS_ACTIVE_ALPHA if active_rotate_axis == "VIEW" else 0.5,
+                AXIS_ACTIVE_ALPHA if active_rotate_axis == "VIEW" else AXIS_IDLE_ALPHA,
                 AXIS_ACTIVE_ALPHA, self.view_ring.draw_options
             )
 
