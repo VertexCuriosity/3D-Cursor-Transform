@@ -2678,6 +2678,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._initial_loc = cursor.location.copy()
         self._start_loc = self._initial_loc.copy()
         self._start_mouse = None
+        self._mouse_offset = Vector((0.0, 0.0))
         self._waiting_for_first_mousemove = True
 
         self._axis = ""
@@ -3297,11 +3298,24 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._update_header_text(context)
         tag_viewport_redraw(context)
 
+    def _apply_arrow_input(self, context, event):
+        """Move the effective translation input by one screen pixel."""
+        directions = {
+            'LEFT_ARROW': (-1.0, 0.0),
+            'RIGHT_ARROW': (1.0, 0.0),
+            'UP_ARROW': (0.0, 1.0),
+            'DOWN_ARROW': (0.0, -1.0),
+        }
+
+        self._ensure_start_mouse(event)
+        self._mouse_offset += Vector(directions[event.type])
+
+        context.scene.cursor.location = self._mouse_to_location(context, event)
+        self._update_header_text(context)
+        tag_viewport_redraw(context)
+
     def _mouse_delta_2d(self, event):
-        current_mouse = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        current_mouse = Vector((event.mouse_region_x, event.mouse_region_y)) + self._mouse_offset
         mouse_delta = current_mouse - self._input_start_mouse()
 
         if self._precision_active:
@@ -3505,14 +3519,11 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
             if consume:
                 if self._numeric.last_action in {"RESET", "CANCEL"}:
-                    if self._start_mouse is None:
-                        context.scene.cursor.location = self._start_loc.copy()
-                    else:
-                        context.scene.cursor.location = self._mouse_to_location(
-                            context,
-                            event,
-                        )
-
+                    context.scene.cursor.location = (
+                        self._start_loc.copy()
+                        if self._start_mouse is None
+                        else self._mouse_to_location(context, event)
+                    )
                     self._update_header_text(context)
                     tag_viewport_redraw(context)
                 else:
@@ -3520,42 +3531,40 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
                 return {'RUNNING_MODAL'}
 
-        if (
-            event.value == 'PRESS'
-            and event.type == 'C'
-            and not event.is_repeat
-        ):
-            self._clear_constraints(context, event)
-            return {'RUNNING_MODAL'}
+            if event.type in {'LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW'} and not self._numeric.active:
+                self._apply_arrow_input(context, event)
+                return {'RUNNING_MODAL'}
 
-        if (
-            event.value == 'PRESS'
-            and event.type == 'R'
-            and not event.is_repeat
-        ):
-            self._switch_to_rotate(context)
-            return {'FINISHED'}
+            if event.type == 'C' and not event.is_repeat:
+                self._clear_constraints(context, event)
+                return {'RUNNING_MODAL'}
 
-        if (
-            event.value == 'PRESS'
-            and event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}
-        ):
-            self._handoff_to_native_translate(context)
-            return {'FINISHED'}
+            if event.type == 'R' and not event.is_repeat:
+                self._switch_to_rotate(context)
+                return {'FINISHED'}
 
-        if (
-            event.value == 'PRESS'
-            and event.type == 'TAB'
-            and event.shift
-        ):
-            tool_settings = context.scene.tool_settings
-            tool_settings.use_snap = not tool_settings.use_snap
-
-            if tool_settings.use_snap:
+            if event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}:
                 self._handoff_to_native_translate(context)
                 return {'FINISHED'}
 
-            return {'RUNNING_MODAL'}
+            if event.type == 'TAB' and event.shift:
+                tool_settings = context.scene.tool_settings
+                tool_settings.use_snap = not tool_settings.use_snap
+
+                if tool_settings.use_snap:
+                    self._handoff_to_native_translate(context)
+                    return {'FINISHED'}
+
+                return {'RUNNING_MODAL'}
+
+            if event.type in {'X', 'Y', 'Z'} and not event.is_repeat:
+                if event.shift:
+                    self._set_plane_cycle(context, event, event.type)
+                else:
+                    self._plane_exclude_axis = ""
+                    self._set_axis_cycle(context, event, event.type)
+
+                return {'RUNNING_MODAL'}
 
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
@@ -3565,27 +3574,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             if event.value == 'RELEASE' and self._mmb_held:
                 self._exit_mmb_pickup(context)
                 return {'RUNNING_MODAL'}
-
-        if (
-            event.value == 'PRESS'
-            and event.type in {'X', 'Y', 'Z'}
-            and not event.is_repeat
-        ):
-            if event.shift:
-                self._set_plane_cycle(
-                    context,
-                    event,
-                    event.type,
-                )
-            else:
-                self._plane_exclude_axis = ""
-                self._set_axis_cycle(
-                    context,
-                    event,
-                    event.type,
-                )
-
-            return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             if self._numeric.active:
@@ -3597,26 +3585,16 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
             if self._waiting_for_first_mousemove:
                 self._waiting_for_first_mousemove = False
-                self._start_mouse = Vector((
-                    event.mouse_region_x,
-                    event.mouse_region_y,
-                ))
+                self._start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
                 return {'RUNNING_MODAL'}
 
             self._update_precision_state(context, event)
 
             if self._mmb_held:
-                self._maybe_switch_axis_by_proximity(
-                    context,
-                    event,
-                )
+                self._maybe_switch_axis_by_proximity(context, event)
 
-            context.scene.cursor.location = self._mouse_to_location(
-                context,
-                event,
-            )
+            context.scene.cursor.location = self._mouse_to_location(context, event)
             self._update_header_text(context)
-
             tag_viewport_redraw(context)
             return {'RUNNING_MODAL'}
 
