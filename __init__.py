@@ -1935,6 +1935,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         ) or 0.0
 
         self._guide_total_angle = 0.0
+        self._guide_mouse_offset = Vector((0.0, 0.0))
         self._guide_previous_mouse_2d = self._guide_start_mouse_2d.copy()
 
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
@@ -2238,14 +2239,46 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._start_euler_compat,
         )
 
+    def _apply_arrow_input(self, context, event):
+        """Move the effective rotation input by one screen pixel."""
+        directions = {
+            'LEFT_ARROW': (-1.0, 0.0),
+            'RIGHT_ARROW': (1.0, 0.0),
+            'UP_ARROW': (0.0, 1.0),
+            'DOWN_ARROW': (0.0, -1.0),
+        }
+
+        self._guide_mouse_offset += Vector(directions[event.type])
+        current_mouse = self._guide_previous_mouse_2d + Vector(directions[event.type])
+        self._apply_mouse_input(context, event, current_mouse)
+
+    def _apply_mouse_input(self, context, event, current_mouse):
+        """Apply Blender-style angular mouse input."""
+        angle_delta = _screen_angle_delta(
+            self._guide_center_2d,
+            self._guide_previous_mouse_2d,
+            current_mouse,
+        )
+
+        if event.shift:
+            angle_delta *= 1.0 / 30.0
+
+        self._guide_total_angle += angle_delta
+        self._guide_previous_mouse_2d = current_mouse.copy()
+
+        angle = self._get_applied_mouse_angle(
+            context, self._guide_total_angle, event.ctrl, event.shift
+        )
+        _ROTATE_DRAW_STATE.total_angle = angle
+
+        self._update_header_text(context, angle)
+        self._apply_rotation(context, angle)
+        tag_viewport_redraw(context)
+
     def modal(self, context, event):
         """Handle constrained cursor rotation."""
         _ROTATE_DRAW_STATE.snap_active = event.ctrl
-        _ROTATE_DRAW_STATE.snap_step = (
-            ROTATE_SNAP_PRECISION_STEP
-            if event.ctrl and event.shift
-            else ROTATE_SNAP_STEP
-        )
+        _ROTATE_DRAW_STATE.snap_step = ROTATE_SNAP_PRECISION_STEP if event.ctrl and event.shift else ROTATE_SNAP_STEP
 
         if event.value == 'PRESS':
             key = event.type
@@ -2260,10 +2293,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             if consume:
                 if self._numeric.last_action in {"RESET", "CANCEL"}:
                     angle = self._get_applied_mouse_angle(
-                        context,
-                        self._guide_total_angle,
-                        event.ctrl,
-                        event.shift,
+                        context, self._guide_total_angle, event.ctrl, event.shift
                     )
                 elif self._numeric.active:
                     angle = math.radians(self._numeric.value())
@@ -2271,67 +2301,48 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                     return {'RUNNING_MODAL'}
 
                 _ROTATE_DRAW_STATE.total_angle = angle
-
                 self._update_header_text(context, angle)
                 self._apply_rotation(context, angle)
-
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
             if key == 'G' and not event.is_repeat:
                 self._remove_guide_handler()
                 switch_native_rotate_to_translate(
-                    context,
-                    (
-                        self.axis
-                        if self.axis in {"X", "Y", "Z"}
-                        else None
-                    ),
+                    context, self.axis if self.axis in {"X", "Y", "Z"} else None
                 )
                 return {'FINISHED'}
 
-            if (
-                key in {"X", "Y", "Z"}
-                and not event.is_repeat
-            ):
-                self._advance_axis_cycle(
-                    context,
-                    event,
-                    key,
-                )
+            if key in {"X", "Y", "Z"} and not event.is_repeat:
+                self._advance_axis_cycle(context, event, key)
                 return {'RUNNING_MODAL'}
 
             if key == 'C' and not event.is_repeat:
-                self._clear_constraints(
-                    context,
-                    event,
-                )
+                self._clear_constraints(context, event)
                 return {'RUNNING_MODAL'}
 
             if key == 'R' and not event.is_repeat:
                 self._swap_to_trackball(context)
                 return {'FINISHED'}
 
+            if key in {'LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW'}:
+                self._apply_arrow_input(context, event)
+                return {'RUNNING_MODAL'}
+
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
                 if not self._numeric.active:
                     self._enter_mmb_pickup(context, event)
-
                 return {'RUNNING_MODAL'}
 
-            if (
-                event.value == 'RELEASE'
-                and self._mmb_held
-            ):
+            if event.value == 'RELEASE' and self._mmb_held:
                 self._exit_mmb_pickup(context)
                 return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
-            current_mouse = Vector((
-                event.mouse_region_x,
-                event.mouse_region_y,
-            ))
-            self._guide_mouse_2d = current_mouse
+            physical_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+            current_mouse = physical_mouse + self._guide_mouse_offset
+            self._guide_mouse_2d = physical_mouse
 
             if self._numeric.active:
                 tag_viewport_redraw(context)
@@ -2340,39 +2351,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             if self._mmb_held:
                 self._maybe_switch_axis_by_proximity(context, event)
 
-            angle_delta = _screen_angle_delta(self._guide_center_2d, self._guide_previous_mouse_2d, current_mouse)
-
-            if event.shift:
-                angle_delta *= 1.0 / 30.0
-
-            self._guide_total_angle += angle_delta
-            self._guide_previous_mouse_2d = current_mouse.copy()
-
-            angle = self._get_applied_mouse_angle(
-                context, self._guide_total_angle, event.ctrl, event.shift
-            )
-            _ROTATE_DRAW_STATE.total_angle = angle
-
-            self._update_header_text(context, angle)
-            self._apply_rotation(context, angle)
-
-            tag_viewport_redraw(context)
+            self._apply_mouse_input(context, event, current_mouse)
             return {'RUNNING_MODAL'}
 
-        if (
-            event.type == 'LEFTMOUSE'
-            and event.value == 'RELEASE'
-        ):
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             self._remove_guide_handler()
             cleanup_rotation_modal(context)
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            restore_cursor_rotation(
-                context.scene.cursor,
-                self._rot_mode,
-                self._start_rot,
-            )
+            restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
             self._remove_guide_handler()
             cleanup_rotation_modal(context)
             return {'CANCELLED'}
