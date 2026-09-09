@@ -1935,7 +1935,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return round(angle / snap_step) * snap_step
 
     def _format_angle(self, value):
-        return f"{value:g}\u00b0"
+        return f"{value:.2f}"
 
     def _update_header_text(self, context, angle):
         """Update the rotation value shown in the viewport header."""
@@ -2381,7 +2381,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
 
     def _format_angle(self, value):
-        return f"{value:g}\u00b0"
+        return f"{value:.2f}"
 
     def _update_header_text(self, context, phi):
         if self._numeric.active:
