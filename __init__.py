@@ -4733,11 +4733,11 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             is_active_axis = translate_running and active_translate_axis == axis
 
             if not show_rotation:
-                arrow_length = 1.1
-                arrow_offset = Matrix.Translation((0.0, 0.0, 0.22))
+                arrow_length = 1.16
+                arrow_offset = Matrix.Translation((0.0, 0.0, 0.19))
             elif translate_running:
-                arrow_length = 1.35 if is_active_axis else 1.1
-                arrow_offset = Matrix.Translation((0.0, 0.0, 0.06 if is_active_axis else 0.22))
+                arrow_length = 1.29 if is_active_axis else 1.16
+                arrow_offset = Matrix.Translation((0.0, 0.0, 0.06 if is_active_axis else 0.19))
             else:
                 # Show only arrowheads while location and rotation are idle.
                 arrow_length = 0.0
@@ -4851,7 +4851,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self._apply_arrow(
                 self.ghost_move_arrow,
                 ghost_location_matrix @ ghost_orientation @ AXIS_ROT[active_translate_axis],
-                1.05, 1.35, Matrix.Translation((0.0, 0.0, 0.06)),
+                1.05, 1.29, Matrix.Translation((0.0, 0.0, 0.06)),
                 ghost_color, GHOST_AXIS_ALPHA, GHOST_AXIS_ALPHA
             )
 
