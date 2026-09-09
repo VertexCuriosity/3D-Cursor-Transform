@@ -448,6 +448,21 @@ def parse_numeric_input(numeric_input):
     if numeric_input in ('', '-'):
         return 0.0
 
+    if '/' in numeric_input:
+        numerator, denominator = numeric_input.split('/', 1)
+
+        try:
+            if denominator == '':
+                value = float(numerator)
+                return 1.0 / value if abs(value) > 1e-12 else 0.0
+
+            numerator = float(numerator) if numerator not in ('', '-') else 1.0
+            denominator = float(denominator)
+
+            return numerator / denominator if abs(denominator) > 1e-12 else 0.0
+        except ValueError:
+            return 0.0
+
     try:
         return float(numeric_input)
     except ValueError:
@@ -1597,6 +1612,7 @@ class NumericInputState:
         self.edited = [False] * component_count
         self.active_component = 0
         self.is_active = False
+        self.last_action = None
 
     @property
     def component_count(self):
@@ -1639,6 +1655,17 @@ class NumericInputState:
             self.cursors[component] + 1,
         )
 
+    def move_cursor_home(self):
+        """Move the input cursor to the beginning."""
+        self.cursors[self.active_component] = 0
+
+    def move_cursor_end(self):
+        """Move the input cursor to the end."""
+        component = self.active_component
+        self.cursors[component] = len(
+            self.inputs[component]
+        )
+
     def insert(self, text):
         """Insert text at the current input cursor."""
         component = self.active_component
@@ -1658,7 +1685,7 @@ class NumericInputState:
         cursor = self.cursors[component]
 
         if cursor == 0:
-            return
+            return False
 
         value = self.inputs[component]
 
@@ -1667,6 +1694,63 @@ class NumericInputState:
             + value[cursor:]
         )
         self.cursors[component] -= 1
+        return True
+
+    def delete(self):
+        """Delete the character after the input cursor."""
+        component = self.active_component
+        cursor = self.cursors[component]
+        value = self.inputs[component]
+
+        if cursor >= len(value):
+            return False
+
+        self.inputs[component] = (
+            value[:cursor]
+            + value[cursor + 1:]
+        )
+        return True
+
+    def copy(self):
+        """Copy the active numeric input to Blender's clipboard."""
+        bpy.context.window_manager.clipboard = self.active_input
+
+    def paste(self):
+        """Paste a valid numeric value at the input cursor."""
+        text = bpy.context.window_manager.clipboard.strip()
+
+        if not text:
+            return False
+
+        component = self.active_component
+        cursor = self.cursors[component]
+        value = self.inputs[component]
+
+        candidate = (
+            value[:cursor]
+            + text
+            + value[cursor:]
+        )
+
+        try:
+            if '/' in candidate:
+                numerator, denominator = candidate.split('/', 1)
+
+                if numerator not in ('', '-'):
+                    float(numerator)
+
+                if denominator:
+                    float(denominator)
+            else:
+                float(candidate)
+        except ValueError:
+            return False
+
+        self.inputs[component] = candidate
+        self.cursors[component] = cursor + len(text)
+        self.edited[component] = True
+        self.is_active = True
+        return True
 
     def text_with_cursor(self, component=None):
         """Return numeric input with the edit cursor inserted."""
@@ -1719,6 +1803,17 @@ class NumericInputState:
         """Handle a keypress for modal numeric input."""
         key = event.type
         component = self.active_component
+        self.last_action = None
+
+        if event.ctrl and key == 'C' and self.is_active:
+            self.copy()
+            return False, True
+
+        if event.ctrl and key == 'V':
+            if self.paste():
+                self.last_action = "EDIT"
+
+            return False, True
 
         if key in _NUMERIC_DIGIT_MAP:
             self.is_active = True
@@ -1751,9 +1846,26 @@ class NumericInputState:
 
             return False, True
 
+        if key in {'SLASH', 'NUMPAD_SLASH'} and self.is_active:
+            if '/' not in self.active_input:
+                self.insert('/')
+
+            return False, True
+
         if key == 'BACK_SPACE' and self.is_active:
-            self.edited[component] = True
-            self.backspace()
+            if self.active_input:
+                self.backspace()
+            elif self.edited[component]:
+                self.edited[component] = False
+                self.last_action = "RESET"
+            else:
+                self.is_active = False
+                self.last_action = "CANCEL"
+
+            return False, True
+
+        if key == 'DEL' and self.is_active:
+            self.delete()
             return False, True
 
         if key == 'LEFT_ARROW' and self.is_active:
@@ -1762,6 +1874,14 @@ class NumericInputState:
 
         if key == 'RIGHT_ARROW' and self.is_active:
             self.move_cursor_right()
+            return False, True
+
+        if key == 'HOME' and self.is_active:
+            self.move_cursor_home()
+            return False, True
+
+        if key == 'END' and self.is_active:
+            self.move_cursor_end()
             return False, True
 
         if key in {'RET', 'NUMPAD_ENTER'} and self.is_active:
@@ -2151,6 +2271,27 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 cleanup_rotation_modal(context)
                 return {'FINISHED'}
 
+            if consume:
+                if self._numeric.last_action in {"RESET", "CANCEL"}:
+                    angle = self._get_applied_mouse_angle(
+                        context,
+                        self._guide_total_angle,
+                        event.ctrl,
+                        event.shift,
+                    )
+                elif self._numeric.active:
+                    angle = math.radians(self._numeric.value())
+                else:
+                    return {'RUNNING_MODAL'}
+
+                _ROTATE_DRAW_STATE.total_angle = angle
+
+                self._update_header_text(context, angle)
+                self._apply_rotation(context, angle)
+
+                tag_viewport_redraw(context)
+                return {'RUNNING_MODAL'}
+
             if key == 'G' and not event.is_repeat:
                 self._remove_guide_handler()
                 switch_native_rotate_to_translate(
@@ -2184,19 +2325,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             if key == 'R' and not event.is_repeat:
                 self._swap_to_trackball(context)
                 return {'FINISHED'}
-
-            if self._numeric.active:
-                angle = math.radians(self._numeric.value())
-                _ROTATE_DRAW_STATE.total_angle = angle
-
-                self._update_header_text(context, angle)
-                self._apply_rotation(context, angle)
-
-                tag_viewport_redraw(context)
-                return {'RUNNING_MODAL'}
-
-            if consume:
-                return {'RUNNING_MODAL'}
 
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
@@ -2428,6 +2556,33 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
                 _ROTATE_DRAW_STATE.active_view = None
                 return {'FINISHED'}
 
+            if consume:
+                if self._numeric.last_action in {"RESET", "CANCEL"}:
+                    phi = Vector((
+                        -self._mouse_accum.y * 0.01,
+                        self._mouse_accum.x * 0.01,
+                    ))
+
+                    if event.ctrl:
+                        snap_step = (
+                            ROTATE_SNAP_PRECISION_STEP
+                            if event.shift
+                            else ROTATE_SNAP_STEP
+                        )
+                        phi.x = round(phi.x / snap_step) * snap_step
+                        phi.y = round(phi.y / snap_step) * snap_step
+                elif self._numeric.active:
+                    phi = Vector((
+                        math.radians(self._numeric.value(0)),
+                        math.radians(self._numeric.value(1)),
+                    ))
+                else:
+                    return {'RUNNING_MODAL'}
+
+                self._apply_trackball_rotation(context, phi)
+                tag_viewport_redraw(context)
+                return {'RUNNING_MODAL'}
+
             if key == 'G' and not event.is_repeat:
                 self._remove_cursor_handler()
                 _ROTATE_DRAW_STATE.active_view = None
@@ -2437,18 +2592,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             if key == 'R' and not event.is_repeat:
                 self._swap_to_view_rotation(context)
                 return {'FINISHED'}
-
-            if self._numeric.active:
-                phi = Vector((
-                    math.radians(self._numeric.value(0)),
-                    math.radians(self._numeric.value(1)),
-                ))
-                self._apply_trackball_rotation(context, phi)
-                tag_viewport_redraw(context)
-                return {'RUNNING_MODAL'}
-
-            if consume:
-                return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             current_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
@@ -3375,7 +3518,20 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
                 return {'FINISHED'}
 
             if consume:
-                self._apply_numeric_translation(context)
+                if self._numeric.last_action in {"RESET", "CANCEL"}:
+                    if self._start_mouse is None:
+                        context.scene.cursor.location = self._start_loc.copy()
+                    else:
+                        context.scene.cursor.location = self._mouse_to_location(
+                            context,
+                            event,
+                        )
+
+                    self._update_header_text(context)
+                    tag_viewport_redraw(context)
+                else:
+                    self._apply_numeric_translation(context)
+
                 return {'RUNNING_MODAL'}
 
         if (
