@@ -175,6 +175,7 @@ class RotationDrawState:
         self.start_angle = 0.0
         self.total_angle = 0.0
         self.snap_active = False
+        self.snap_step = ROTATE_SNAP_STEP
         self.mmb_held = False
 
 _ROTATE_DRAW_STATE = RotationDrawState()
@@ -1123,29 +1124,6 @@ def _build_screen_space_ring_basis(
     return basis_x_2d, basis_y_2d
 
 
-def _build_rotation_dial_basis(context, center, axis, mouse):
-    """Build a Blender-style rotation dial basis from the initial mouse position."""
-    rv3d = context.region_data
-    ray_origin = view3d_utils.region_2d_to_origin_3d(context.region, rv3d, mouse)
-    ray_direction = view3d_utils.region_2d_to_vector_3d(context.region, rv3d, mouse)
-
-    denominator = ray_direction.dot(axis)
-    direction = ray_origin + ray_direction * ((center - ray_origin).dot(axis) / denominator) - center if abs(denominator) > 1e-8 else axis.orthogonal()
-
-    if direction.length <= 1e-8:
-        direction = axis.orthogonal()
-
-    y_axis = direction.normalized()
-    x_axis = y_axis.cross(axis).normalized()
-
-    basis = Matrix.Identity(4)
-    basis.col[0].xyz = x_axis
-    basis.col[1].xyz = y_axis
-    basis.col[2].xyz = axis
-    basis.translation = center
-    return basis
-
-
 def _project_axis_dir_2d(context, center_3d, axis_vector):
     """Project a 3D axis into a normalized screen-space direction."""
     center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d)
@@ -1832,10 +1810,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
         self._guide_start_mouse_2d = self._guide_mouse_2d.copy()
 
-        self._guide_dial_basis = _build_rotation_dial_basis(
-            context, self._start_loc, self._get_frozen_axis_vector(), self._guide_start_mouse_2d
-        )
-
         gizmo_size = max(context.preferences.view.gizmo_size, 1)
 
         if self.axis == "VIEW":
@@ -2161,6 +2135,11 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     def modal(self, context, event):
         """Handle constrained cursor rotation."""
         _ROTATE_DRAW_STATE.snap_active = event.ctrl
+        _ROTATE_DRAW_STATE.snap_step = (
+            ROTATE_SNAP_PRECISION_STEP
+            if event.ctrl and event.shift
+            else ROTATE_SNAP_STEP
+        )
 
         if event.value == 'PRESS':
             key = event.type
@@ -4146,6 +4125,13 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
         start_angle = float(
             getattr(self, "start_angle", 0.0)
         )
+        snap_step = float(
+            getattr(
+                self,
+                "snap_step",
+                ROTATE_SNAP_STEP,
+            )
+        )
         tick_offset = float(
             getattr(
                 self,
@@ -4201,7 +4187,7 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
             )
 
             vertices.extend((base, tip))
-            angle += ROTATE_SNAP_STEP
+            angle += snap_step
 
         if not vertices:
             return
@@ -4868,6 +4854,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self.rotate_ticks.matrix_basis = ticks_basis
             self.rotate_ticks.scale_basis = ticks_scale
             self.rotate_ticks.start_angle = _ROTATE_DRAW_STATE.start_angle
+            self.rotate_ticks.snap_step = _ROTATE_DRAW_STATE.snap_step
             self.rotate_ticks.tick_offset = tick_offset
             self.rotate_ticks.tick_length = tick_length
             self.rotate_ticks.tick_width = tick_width
