@@ -106,7 +106,7 @@ ROTATE_GUIDE_DASH_LENGTH = 4.0
 ROTATE_GUIDE_GAP_LENGTH = 4.0
 ROTATE_GUIDE_LINE_WIDTH = 1.0
 
-ROTATE_GUIDE_SHADOW_COLOR = (0.0, 0.0, 0.0, 0.75)
+ROTATE_GUIDE_SHADOW_COLOR = (0.0, 0.0, 0.0, 0.8)
 ROTATE_GUIDE_SHADOW_OFFSET = Vector((3.0, -2.0))
 ROTATE_GUIDE_SHADOW_LINE_WIDTH = 1.0
 
@@ -1348,6 +1348,104 @@ def _rotate_guide_draw_op(operator):
         ROTATE_GUIDE_LINE_WIDTH,
     )
 
+    _draw_rotation_cursor(operator)
+
+
+def _draw_rotation_cursor(operator):
+    """Draw Blender-style angle helper arrows at the mouse position."""
+    context = bpy.context
+    mouse = operator._guide_mouse_2d
+    center = operator._guide_center_2d
+
+    if mouse is None or center is None:
+        return
+
+    direction = mouse - center
+
+    if direction.length <= 1e-6:
+        return
+
+    pixel_size = context.preferences.system.pixel_size
+    ui_scale = context.preferences.system.ui_scale
+
+    arrow_width = TRACKBALL_CURSOR_LINE_WIDTH * pixel_size
+    offset = int(5.0 * ui_scale)
+    length = int((6.0 * ui_scale) + (4.0 * pixel_size))
+    size = int((3.0 * ui_scale) + (2.0 * pixel_size))
+    adjust = math.sqrt(2.0) * arrow_width / 4.0
+
+    angle = math.atan2(direction.y, direction.x)
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+
+    # Blender offsets the arrow pair one pixel toward the transform center line.
+    origin = mouse + Vector((cosine, sine))
+
+    def transform_vertex(vertex):
+        x, y = vertex
+        return (
+            origin.x + x * cosine - y * sine,
+            origin.y + x * sine + y * cosine,
+        )
+
+    def arrow_vertices(direction):
+        local_offset = offset
+        local_length = length
+        local_size = size
+        local_adjust = adjust
+
+        if direction == "DOWN":
+            local_offset = -local_offset
+            local_length = -local_length
+            local_size = -local_size
+            local_adjust = -local_adjust
+
+        vertices = [
+            (0.0, local_offset),
+            (0.0, local_offset + local_length),
+
+            (local_adjust, local_offset + local_length + local_adjust),
+            (-local_size, local_offset + local_length - local_size),
+
+            (0.0, local_offset + local_length),
+            (local_size, local_offset + local_length - local_size),
+        ]
+
+        return [transform_vertex(vertex) for vertex in vertices]
+
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+
+    gpu.state.blend_set('ALPHA')
+
+    shader.bind()
+    shader.uniform_float(
+        "viewportSize",
+        gpu.state.viewport_get()[2:],
+    )
+
+    vertices = (
+        arrow_vertices("DOWN")
+        + arrow_vertices("UP")
+    )
+
+    batch = batch_for_shader(
+        shader,
+        'LINES',
+        {"pos": vertices},
+    )
+
+    # Blender draws a wider dark background pass first.
+    shader.uniform_float("lineWidth", arrow_width * 2.0)
+    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
+    batch.draw(shader)
+
+    # Then the white foreground arrows.
+    shader.uniform_float("lineWidth", arrow_width)
+    shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
+    batch.draw(shader)
+
+    gpu.state.blend_set('NONE')
+
 
 def _draw_trackball_cursor(operator):
     """Draw Blender-style trackball helper arrows at the mouse position."""
@@ -1383,28 +1481,40 @@ def _draw_trackball_cursor(operator):
                 (mouse.x + local_offset, mouse.y),
                 (mouse.x + local_offset + local_length, mouse.y),
 
-                (mouse.x + local_offset + local_length + local_adjust,
-                 mouse.y + local_adjust),
-                (mouse.x + local_offset + local_length - local_size,
-                 mouse.y - local_size),
+                (
+                    mouse.x + local_offset + local_length + local_adjust,
+                    mouse.y + local_adjust,
+                ),
+                (
+                    mouse.x + local_offset + local_length - local_size,
+                    mouse.y - local_size,
+                ),
 
                 (mouse.x + local_offset + local_length, mouse.y),
-                (mouse.x + local_offset + local_length - local_size,
-                 mouse.y + local_size),
+                (
+                    mouse.x + local_offset + local_length - local_size,
+                    mouse.y + local_size,
+                ),
             ]
 
         return [
             (mouse.x, mouse.y + local_offset),
             (mouse.x, mouse.y + local_offset + local_length),
 
-            (mouse.x + local_adjust,
-             mouse.y + local_offset + local_length + local_adjust),
-            (mouse.x - local_size,
-             mouse.y + local_offset + local_length - local_size),
+            (
+                mouse.x + local_adjust,
+                mouse.y + local_offset + local_length + local_adjust,
+            ),
+            (
+                mouse.x - local_size,
+                mouse.y + local_offset + local_length - local_size,
+            ),
 
             (mouse.x, mouse.y + local_offset + local_length),
-            (mouse.x + local_size,
-             mouse.y + local_offset + local_length - local_size),
+            (
+                mouse.x + local_size,
+                mouse.y + local_offset + local_length - local_size,
+            ),
         ]
 
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
@@ -1418,8 +1528,8 @@ def _draw_trackball_cursor(operator):
     )
 
     # Match Blender's wider background pass, offset by one pixel.
-    background_vertices = []
     background_offset = Vector((pixel_size, -pixel_size))
+    background_vertices = []
 
     for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
         background_vertices.extend(
@@ -1433,8 +1543,6 @@ def _draw_trackball_cursor(operator):
         {"pos": background_vertices},
     )
 
-    view_3d = context.preferences.themes[0].view_3d
-
     shader.uniform_float("lineWidth", arrow_width * 2.0)
     shader.uniform_float(
         "color",
@@ -1442,9 +1550,10 @@ def _draw_trackball_cursor(operator):
     )
     background_batch.draw(shader)
 
-    # Blender derives the axis colors from the grid color, not gizmo colors.
-    view_3d = context.preferences.themes[0].view_3d
-    user_interface = context.preferences.themes[0].user_interface
+    # Blender derives the axis colors from the grid and axis theme colors.
+    theme = context.preferences.themes[0]
+    view_3d = theme.view_3d
+    user_interface = theme.user_interface
 
     grid = Vector(view_3d.grid[:3])
 
@@ -1455,7 +1564,10 @@ def _draw_trackball_cursor(operator):
         }[axis])
 
         color = grid.lerp(axis_theme, 0.5)
-        return tuple(max(0.0, c - (10.0 / 255.0)) for c in color)
+        return tuple(
+            max(0.0, component - (10.0 / 255.0))
+            for component in color
+        )
 
     shader.uniform_float("lineWidth", arrow_width)
 
@@ -1489,115 +1601,6 @@ def _draw_trackball_cursor(operator):
         "color",
         (*axis_color("Y"), 1.0),
     )
-    vertical_batch.draw(shader)
-
-    gpu.state.blend_set('NONE')
-
-
-    def arrow_vertices(direction):
-        if direction == "RIGHT":
-            return [
-                (mouse.x + offset, mouse.y),
-                (mouse.x + offset + length, mouse.y),
-
-                (mouse.x + offset + length, mouse.y),
-                (mouse.x + offset + length - size, mouse.y - size),
-
-                (mouse.x + offset + length, mouse.y),
-                (mouse.x + offset + length - size, mouse.y + size),
-            ]
-
-        if direction == "LEFT":
-            return [
-                (mouse.x - offset, mouse.y),
-                (mouse.x - offset - length, mouse.y),
-
-                (mouse.x - offset - length, mouse.y),
-                (mouse.x - offset - length + size, mouse.y - size),
-
-                (mouse.x - offset - length, mouse.y),
-                (mouse.x - offset - length + size, mouse.y + size),
-            ]
-
-        if direction == "UP":
-            return [
-                (mouse.x, mouse.y + offset),
-                (mouse.x, mouse.y + offset + length),
-
-                (mouse.x, mouse.y + offset + length),
-                (mouse.x - size, mouse.y + offset + length - size),
-
-                (mouse.x, mouse.y + offset + length),
-                (mouse.x + size, mouse.y + offset + length - size),
-            ]
-
-        return [
-            (mouse.x, mouse.y - offset),
-            (mouse.x, mouse.y - offset - length),
-
-            (mouse.x, mouse.y - offset - length),
-            (mouse.x - size, mouse.y - offset - length + size),
-
-            (mouse.x, mouse.y - offset - length),
-            (mouse.x + size, mouse.y - offset - length + size),
-        ]
-
-    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-    axis_colors = get_theme_gizmo_colors(bpy.context)
-
-    gpu.state.blend_set('ALPHA')
-
-    shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-
-    # Blender first draws a darker, wider background behind all arrows.
-    shadow_offset = Vector((pixel_size, -pixel_size))
-    background_vertices = []
-
-    for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
-        background_vertices.extend(
-            Vector(vertex) + shadow_offset
-            for vertex in arrow_vertices(direction)
-        )
-
-    background_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {"pos": background_vertices},
-    )
-
-    shader.uniform_float("lineWidth", line_width * 2.0)
-    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.5))
-    background_batch.draw(shader)
-
-    shader.uniform_float("lineWidth", line_width)
-
-    horizontal_vertices = (
-        arrow_vertices("RIGHT")
-        + arrow_vertices("LEFT")
-    )
-    horizontal_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {"pos": horizontal_vertices},
-    )
-
-    x_color = axis_colors["X"]
-    shader.uniform_float("color", (*x_color, 1.0))
-    horizontal_batch.draw(shader)
-
-    vertical_vertices = (
-        arrow_vertices("UP")
-        + arrow_vertices("DOWN")
-    )
-    vertical_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {"pos": vertical_vertices},
-    )
-
-    y_color = axis_colors["Y"]
-    shader.uniform_float("color", (*y_color, 1.0))
     vertical_batch.draw(shader)
 
     gpu.state.blend_set('NONE')
@@ -1869,7 +1872,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         context.workspace.status_text_set(
             draw_status_rotate_axis
         )
-        context.window.cursor_modal_set('MOVE_X')
+        context.window.cursor_modal_set('NONE')
 
         window_manager = context.window_manager
         window_manager.cursortransform_active_rotate_axis = self.axis
@@ -1881,6 +1884,8 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._update_header_text(context, 0.0)
 
         window_manager.modal_handler_add(self)
+        tag_viewport_redraw(context)
+
         return {'RUNNING_MODAL'}
 
     def _remove_guide_handler(self):
@@ -2229,17 +2234,18 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
-            if self._numeric.active:
-                return {'RUNNING_MODAL'}
-
-            if self._mmb_held:
-                self._maybe_switch_axis_by_proximity(context, event)
-
             current_mouse = Vector((
                 event.mouse_region_x,
                 event.mouse_region_y,
             ))
             self._guide_mouse_2d = current_mouse
+
+            if self._numeric.active:
+                tag_viewport_redraw(context)
+                return {'RUNNING_MODAL'}
+
+            if self._mmb_held:
+                self._maybe_switch_axis_by_proximity(context, event)
 
             angle_delta = _screen_angle_delta(self._guide_center_2d, self._guide_previous_mouse_2d, current_mouse)
 
