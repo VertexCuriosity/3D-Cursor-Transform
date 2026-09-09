@@ -3308,6 +3308,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         }
 
         self._ensure_start_mouse(event)
+        self._update_precision_state(context, event)
         self._mouse_offset += Vector(directions[event.type])
 
         context.scene.cursor.location = self._mouse_to_location(context, event)
@@ -3348,17 +3349,12 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return projected_vector
 
     def _update_precision_state(self, context, event):
-        current_mouse = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        current_mouse = Vector((event.mouse_region_x, event.mouse_region_y)) + self._mouse_offset
 
         if event.shift and not self._precision_active:
             self._precision_active = True
             self._precision_start_mouse = current_mouse
-            self._precision_start_loc = (
-                context.scene.cursor.location.copy()
-            )
+            self._precision_start_loc = context.scene.cursor.location.copy()
             return
 
         if not event.shift and self._precision_active:
