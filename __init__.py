@@ -1694,21 +1694,12 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         )
 
     def _switch_axis_constraint(self, context, event, new_axis, use_alternate_orient=False):
-        """Switch the rotation constraint without changing the cursor rotation."""
+        """Switch the rotation constraint while preserving Blender-style transform input."""
         if new_axis not in {"X", "Y", "Z", "VIEW"}:
             return
 
         if self.axis == new_axis and self._using_alternate_orient == use_alternate_orient:
             return
-
-        cursor = context.scene.cursor
-        current_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-
-        # Preserve the current transform and start new mouse input from here.
-        self._start_quat = get_cursor_quaternion(cursor)
-        self._start_euler_compat = cursor.rotation_euler.copy()
-        self._guide_total_angle = 0.0
-        self._guide_previous_mouse_2d = current_mouse.copy()
 
         self.axis = new_axis
         self._using_alternate_orient = use_alternate_orient
@@ -1728,20 +1719,23 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             context, self._guide_center_2d, self._start_loc, ring_matrix, pixel_radius
         )
 
-        self._guide_start_mouse_2d = current_mouse.copy()
         self._guide_start_angle = _ellipse_angle_from_mouse(
             self._guide_center_2d, self._guide_start_mouse_2d,
             self._guide_basis_x_2d, self._guide_basis_y_2d
         ) or 0.0
 
-        self._guide_mouse_2d = current_mouse
+        angle = self._get_applied_mouse_angle(
+            context, self._guide_total_angle, event.ctrl
+        )
 
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
-        _ROTATE_DRAW_STATE.total_angle = 0.0
+        _ROTATE_DRAW_STATE.total_angle = angle
 
         context.window_manager.cursortransform_active_rotate_axis = self.axis
 
-        self._update_header_text(context, 0.0)
+        self._apply_rotation(context, angle)
+        self._update_header_text(context, angle)
+
         tag_viewport_redraw(context)
 
     def _advance_axis_cycle(self, context, event, axis):
