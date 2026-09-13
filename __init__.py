@@ -864,6 +864,7 @@ def _draw_dashed_line_2d(
         {"pos": segments},
     )
 
+    previous_blend = gpu.state.blend_get()
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
@@ -875,7 +876,7 @@ def _draw_dashed_line_2d(
     shader.uniform_float("color", color)
     batch.draw(shader)
 
-    gpu.state.blend_set('NONE')
+    gpu.state.blend_set(previous_blend)
 
 
 def _draw_translate_axis_line_op(operator):
@@ -916,6 +917,7 @@ def _draw_translate_axis_line_op(operator):
         * context.preferences.system.pixel_size
     )
 
+    previous_blend = gpu.state.blend_get()
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
@@ -979,7 +981,7 @@ def _draw_translate_axis_line_op(operator):
         shader.uniform_float("color", color)
         batch.draw(shader)
 
-    gpu.state.blend_set('NONE')
+    gpu.state.blend_set(previous_blend)
 
 
 # ── 2D ring and rotation math ────────────────────────────────────────────────
@@ -1394,6 +1396,7 @@ def _draw_rotation_cursor(operator):
 
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
+    previous_blend = gpu.state.blend_get()
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
@@ -1423,7 +1426,7 @@ def _draw_rotation_cursor(operator):
     shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
     batch.draw(shader)
 
-    gpu.state.blend_set('NONE')
+    gpu.state.blend_set(previous_blend)
 
 
 def _draw_trackball_cursor(operator):
@@ -1498,6 +1501,7 @@ def _draw_trackball_cursor(operator):
 
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
+    previous_blend = gpu.state.blend_get()
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
@@ -1582,7 +1586,7 @@ def _draw_trackball_cursor(operator):
     )
     vertical_batch.draw(shader)
 
-    gpu.state.blend_set('NONE')
+    gpu.state.blend_set(previous_blend)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3988,13 +3992,16 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
             else outline_alpha
         )
 
+        previous_blend = gpu.state.blend_get()
+        previous_line_width = gpu.state.line_width_get()
+
         gpu.state.blend_set('ALPHA')
         gpu.state.line_width_set(PLANE_LINE_WIDTH)
 
         self.draw_custom_shape(self._outline_shape)
 
-        gpu.state.line_width_set(1.0)
-        gpu.state.blend_set('NONE')
+        gpu.state.line_width_set(previous_line_width)
+        gpu.state.blend_set(previous_blend)
 
         self.color = original_color
         self.alpha = original_alpha
@@ -4141,6 +4148,7 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             self.alpha = fill_alpha * (rotation_count + 1)
             self.draw_custom_shape(remainder_shape)
 
+        previous_blend = gpu.state.blend_get()
         gpu.state.blend_set('ALPHA')
 
         with gpu.matrix.push_pop():
@@ -4149,7 +4157,7 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             _draw_radius_line(start_angle, (*radius_color[:3], 1.0), start_width)
             _draw_radius_line(start_angle + total_angle, (*radius_color[:3], 1.0), end_width)
 
-        gpu.state.blend_set('NONE')
+        gpu.state.blend_set(previous_blend)
 
         self.color = original_color
         self.alpha = original_alpha
@@ -4198,6 +4206,7 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
             {"pos": vertices},
         )
 
+        previous_blend = gpu.state.blend_get()
         previous_depth_test = gpu.state.depth_test_get()
         previous_depth_mask = gpu.state.depth_mask_get()
 
@@ -4223,7 +4232,7 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
 
         gpu.state.depth_mask_set(previous_depth_mask)
         gpu.state.depth_test_set(previous_depth_test)
-        gpu.state.blend_set('NONE')
+        gpu.state.blend_set(previous_blend)
 
     def draw_select(self, _context, _select_id):
         pass
@@ -4315,6 +4324,7 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
             {"pos": vertices},
         )
 
+        previous_blend = gpu.state.blend_get()
         previous_depth_test = gpu.state.depth_test_get()
         previous_depth_mask = gpu.state.depth_mask_get()
 
@@ -4343,7 +4353,7 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
 
         gpu.state.depth_mask_set(previous_depth_mask)
         gpu.state.depth_test_set(previous_depth_test)
-        gpu.state.blend_set('NONE')
+        gpu.state.blend_set(previous_blend)
 
     def draw_select(self, _context, _select_id):
         pass
