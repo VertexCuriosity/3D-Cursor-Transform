@@ -161,6 +161,7 @@ _TRANSLATE_GHOST_START_LOC = None
 _TRANSLATE_GHOST_START_ORIENT = None
 _TRANSLATE_ACTIVE_ORIENT = None
 
+
 class RotationDrawState:
     """Shared state used by the rotation modal and gizmo drawing."""
 
@@ -176,6 +177,7 @@ class RotationDrawState:
         self.snap_step = ROTATE_SNAP_STEP
         self.mmb_held = False
 
+
 _ROTATE_DRAW_STATE = RotationDrawState()
 _ROTATE_TRACKBALL_HANDOFF = None
 
@@ -188,6 +190,7 @@ _ROTATE_PREVIOUS_AXIS = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Context, viewport, and modal state ───────────────────────────────────────
+
 
 def active_tool_is_cursor(context):
     workspace = getattr(context, "workspace", None)
@@ -277,6 +280,7 @@ def native_rotate_modal_running(context):
 
 # ── Orientation helpers ──────────────────────────────────────────────────────
 
+
 def get_orient_type(context):
     slots = context.scene.transform_orientation_slots
     return slots[0].type if slots else 'GLOBAL'
@@ -334,6 +338,7 @@ def alternate_orient_label(context):
 
 
 # ── Cursor rotation helpers ──────────────────────────────────────────────────
+
 
 def get_cursor_quaternion(cursor):
     """Return the cursor rotation as a quaternion."""
@@ -424,6 +429,7 @@ def reset_cursor_rotation(cursor):
 
 # ── Modal operation helpers ──────────────────────────────────────────────────
 
+
 def tag_viewport_redraw(context):
     """Redraw the active viewport region and area when available."""
     if context.region is not None:
@@ -498,6 +504,7 @@ def switch_native_rotate_to_translate(context, axis=None):
 
 
 # ── Status bar helpers ───────────────────────────────────────────────────────
+
 
 def _draw_status_rotate_common(
     header,
@@ -670,6 +677,7 @@ def draw_status_translate(header, context):
 
 # ── Gizmo appearance helpers ─────────────────────────────────────────────────
 
+
 def get_theme_gizmo_colors(context):
     """Return the theme colors used by the transform gizmos."""
     theme = context.preferences.themes[0].user_interface
@@ -760,6 +768,7 @@ def plane_view_alpha(
 
 
 # ── 2D overlay geometry and drawing ──────────────────────────────────────────
+
 
 def _build_sector_fan_vertices(start_angle, end_angle, steps):
     """Build triangle vertices for a filled circular sector."""
@@ -998,6 +1007,7 @@ def _draw_translate_axis_line_op(operator):
 
 # ── 2D ring and rotation math ────────────────────────────────────────────────
 
+
 def _solve_2d_basis(vector, basis_x, basis_y):
     """
     Express a 2D vector in the given basis.
@@ -1082,6 +1092,7 @@ def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
 
 # ── Screen-space projection helpers ──────────────────────────────────────────
 
+
 def _build_screen_space_ring_basis(
     context,
     center_2d,
@@ -1142,7 +1153,10 @@ def _build_screen_space_ring_basis(
 def _project_axis_dir_2d(context, center_3d, axis_vector):
     """Project a 3D axis into a normalized screen-space direction."""
     center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d)
-    tip_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE)
+    tip_2d = view3d_utils.location_3d_to_region_2d(
+        context.region, context.region_data,
+        center_3d + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE
+    )
 
     if center_2d is None or tip_2d is None:
         return None
@@ -1203,6 +1217,7 @@ def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
 
 
 # ── Rotation guide drawing ───────────────────────────────────────────────────
+
 
 def _draw_shortcut_axis_line(operator):
     """
@@ -1605,6 +1620,7 @@ def _draw_trackball_cursor(operator):
 # Numeric Input State
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class NumericInputState:
     """Store and edit modal numeric input."""
 
@@ -1896,6 +1912,7 @@ class NumericInputState:
 # Rotation Operators
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     """Rotate the 3D Cursor around a frozen axis by dragging."""
 
@@ -1932,7 +1949,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         _ROTATE_DRAW_STATE.active_orient = self._start_orient.copy()
         _ROTATE_DRAW_STATE.active_view = self._start_view.copy()
 
-        self._guide_center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, self._start_loc)
+        self._guide_center_2d = view3d_utils.location_3d_to_region_2d(
+            context.region, context.region_data, self._start_loc
+        )
         self._guide_mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
         self._guide_start_mouse_2d = self._guide_mouse_2d.copy()
 
@@ -2668,9 +2687,11 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
         return {'RUNNING_MODAL'}
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Translation and Wrapper Operators
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class CURSORTRANSFORM_OT_clear_transform(bpy.types.Operator):
     """Clear the 3D Cursor location or rotation."""
@@ -3895,6 +3916,7 @@ class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
 # Gizmo Classes and Group
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class CURSORTRANSFORM_GT_filled_dot(bpy.types.Gizmo):
     """Filled center marker used by active and ghost gizmos."""
 
@@ -4851,7 +4873,10 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         # Active translation center markers
         for axis, gizmo in self.axis_center_dots.items():
             is_active_axis = show_location and translate_running and active_translate_axis == axis
-            is_active_plane = show_location and active_plane_move and PLANE_NORMAL_AXIS.get(active_translate_axis) == axis
+            is_active_plane = (
+                show_location and active_plane_move
+                and PLANE_NORMAL_AXIS.get(active_translate_axis) == axis
+            )
 
             gizmo.hide = not (is_active_axis or is_active_plane)
 
@@ -4911,7 +4936,10 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                 1.35, ghost_color, GHOST_AXIS_ALPHA
             )
 
-        show_ghost_move_center = translate_running and active_translate_axis == "" and _TRANSLATE_GHOST_START_LOC is not None
+        show_ghost_move_center = (
+            translate_running and active_translate_axis == ""
+            and _TRANSLATE_GHOST_START_LOC is not None
+        )
         self.ghost_move_center.hide = not show_ghost_move_center
 
         if show_ghost_move_center:
@@ -4973,7 +5001,11 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             if gizmo.hide:
                 continue
 
-            alpha = ROTATE_MMB_AXIS_LINE_DIM_ALPHA if _ROTATE_DRAW_STATE.mmb_held and axis != active_rotate_axis else 1.0
+            alpha = (
+                ROTATE_MMB_AXIS_LINE_DIM_ALPHA
+                if _ROTATE_DRAW_STATE.mmb_held and axis != active_rotate_axis
+                else 1.0
+            )
             highlighted_color = axis_highlight_color(axis_colors[axis])
 
             gizmo.matrix_basis = location_matrix @ rotate_basis @ AXIS_ROT[axis]
@@ -5050,6 +5082,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 # ─────────────────────────────────────────────────────────────────────────────
 # Keymaps and Registration
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 classes = (
     CURSORTRANSFORM_OT_rotate_modal,
