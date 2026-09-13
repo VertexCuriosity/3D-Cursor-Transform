@@ -204,6 +204,18 @@ def active_tool_is_cursor(context):
     return tool is not None and tool.idname == "builtin.cursor"
 
 
+def cursor_transform_context_valid(context):
+    """Return whether cursor transforms can run in the active 3D View."""
+    return (
+        context.area is not None
+        and context.area.type == 'VIEW_3D'
+        and context.region is not None
+        and context.region.type == 'WINDOW'
+        and context.region_data is not None
+        and active_tool_is_cursor(context)
+    )
+
+
 def viewport_allows_gizmo(context):
     space = getattr(context, "space_data", None)
 
@@ -1893,6 +1905,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     axis: bpy.props.StringProperty(default="Z")
 
+    @classmethod
+    def poll(cls, context):
+        return cursor_transform_context_valid(context)
+
     def invoke(self, context, event):
         """Initialize constrained cursor rotation."""
         cursor = context.scene.cursor
@@ -2379,6 +2395,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
     bl_label = "Cursor Rotate Free"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
+    @classmethod
+    def poll(cls, context):
+        return cursor_transform_context_valid(context)
+
     def invoke(self, context, event):
         """Initialize the free-rotation modal state."""
         cursor = context.scene.cursor
@@ -2695,6 +2715,10 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     release_confirm: bpy.props.BoolProperty(default=False)
     axis: bpy.props.StringProperty(default="")
     plane: bpy.props.StringProperty(default="")
+
+    @classmethod
+    def poll(cls, context):
+        return cursor_transform_context_valid(context)
 
     def invoke(self, context, event):
         """Initialize the custom translation modal state."""
