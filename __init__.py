@@ -1868,9 +1868,12 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._guide_basis_x_2d, self._guide_basis_y_2d
         ) or 0.0
 
-        angle = self._get_applied_mouse_angle(
-            context, self._guide_total_angle, event.ctrl, event.shift
-        )
+        if self._numeric.active:
+            angle = math.radians(self._numeric.value())
+        else:
+            angle = self._get_applied_mouse_angle(
+                context, self._guide_total_angle, event.ctrl, event.shift
+            )
 
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
         _ROTATE_DRAW_STATE.total_angle = angle
@@ -2065,8 +2068,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         if event.type == 'MIDDLEMOUSE':
             if event.value == 'PRESS':
-                if not self._numeric.active:
-                    self._enter_mmb_pickup(context, event)
+                self._enter_mmb_pickup(context, event)
                 return {'RUNNING_MODAL'}
 
             if event.value == 'RELEASE' and self._mmb_held:
@@ -2079,6 +2081,9 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             self._guide_mouse_2d = physical_mouse
 
             if self._numeric.active:
+                if self._mmb_held:
+                    self._maybe_switch_axis_by_proximity(context, event)
+
                 tag_viewport_redraw(context)
                 return {'RUNNING_MODAL'}
 
@@ -2667,10 +2672,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             _TRANSLATE_GHOST_START_ORIENT = None
             _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
-        self._update_header_text(context)
+        if self._numeric.active:
+            self._numeric.active_component = 0
+            self._apply_numeric_translation(context)
+        else:
+            context.scene.cursor.location = self._mouse_to_location(context, event)
+            self._update_header_text(context)
+            tag_viewport_redraw(context)
+
         self._update_status_bar(context)
-        tag_viewport_redraw(context)
 
     def _set_plane_cycle(self, context, event, excluded_axis):
         global _TRANSLATE_GHOST_START_ORIENT
@@ -2708,11 +2718,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             _TRANSLATE_GHOST_START_ORIENT = None
             _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        if self._numeric.active:
+            self._numeric.active_component = min(self._numeric.active_component, 1)
+            self._apply_numeric_translation(context)
+        else:
+            context.scene.cursor.location = self._mouse_to_location(context, event)
+            self._update_header_text(context)
+            tag_viewport_redraw(context)
 
-        self._update_header_text(context)
         self._update_status_bar(context)
-        tag_viewport_redraw(context)
 
     def _clear_constraints(self, context, event):
         """Clear the active axis or plane constraint."""
@@ -2730,11 +2744,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         _TRANSLATE_GHOST_START_ORIENT = None
         _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        if self._numeric.active:
+            self._numeric.active_component = min(self._numeric.active_component, 2)
+            self._apply_numeric_translation(context)
+        else:
+            context.scene.cursor.location = self._mouse_to_location(context, event)
+            self._update_header_text(context)
+            tag_viewport_redraw(context)
 
-        self._update_header_text(context)
         self._update_status_bar(context)
-        tag_viewport_redraw(context)
 
     def _switch_to_rotate(self, context):
         """Finish translation and start cursor rotation."""
@@ -2812,11 +2830,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
         _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
 
-        context.scene.cursor.location = self._mouse_to_location(context, event)
+        if self._numeric.active:
+            self._numeric.active_component = 0
+            self._apply_numeric_translation(context)
+        else:
+            context.scene.cursor.location = self._mouse_to_location(context, event)
+            self._update_header_text(context)
+            tag_viewport_redraw(context)
 
-        self._update_header_text(context)
         self._update_status_bar(context)
-        tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
         mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
@@ -3144,6 +3166,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if event.type == 'MOUSEMOVE':
             if self._numeric.active:
+                if self._mmb_held:
+                    self._maybe_switch_axis_by_proximity(context, event)
+
                 return {'RUNNING_MODAL'}
 
             if context.scene.tool_settings.use_snap:
@@ -3537,15 +3562,6 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
 
     bl_idname = "CURSORTRANSFORM_GT_rotate_sector"
 
-    def setup(self):
-        """Create the cached full-sector shape."""
-        if hasattr(self, "_full_sector_shape"):
-            return
-
-        self._full_sector_shape = self.new_custom_shape(
-            'TRIS', _build_sector_fan_vertices(0.0, math.tau, ROTATE_SECTOR_STEPS)
-        )
-
     def draw(self, _context):
         """Draw the filled rotation sector and its radius markers."""
         start_angle = getattr(self, "start_angle", 0.0)
@@ -3574,6 +3590,8 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
         if rotation_count:
             background_start = start_angle + remaining_angle
             background_end = background_start + background_angle
+            # Rebuilt every draw: the sector's angles change continuously
+            # during the modal, so there's nothing stable to cache.
             background_shape = self.new_custom_shape(
                 'TRIS',
                 _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS)
