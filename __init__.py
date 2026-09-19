@@ -384,18 +384,10 @@ def set_cursor_from_quaternion(cursor, quaternion, euler_compat):
 
     if rotation_mode == 'AXIS_ANGLE':
         axis, angle = quaternion.to_axis_angle()
-        cursor.rotation_axis_angle = (
-            angle,
-            axis.x,
-            axis.y,
-            axis.z,
-        )
+        cursor.rotation_axis_angle = (angle, axis.x, axis.y, axis.z)
         return
 
-    cursor.rotation_euler = quaternion.to_euler(
-        rotation_mode,
-        euler_compat,
-    )
+    cursor.rotation_euler = quaternion.to_euler(rotation_mode, euler_compat)
 
 
 def restore_cursor_rotation(cursor, rotation_mode, start_rotation):
@@ -413,16 +405,9 @@ def reset_cursor_rotation(cursor):
     rotation_mode = cursor.rotation_mode
 
     if rotation_mode == 'QUATERNION':
-        cursor.rotation_quaternion = Quaternion(
-            (1.0, 0.0, 0.0, 0.0)
-        )
+        cursor.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
     elif rotation_mode == 'AXIS_ANGLE':
-        cursor.rotation_axis_angle = (
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        )
+        cursor.rotation_axis_angle = (0.0, 0.0, 0.0, 1.0)
     else:
         cursor.rotation_euler = (0.0, 0.0, 0.0)
 
@@ -490,28 +475,16 @@ def switch_native_rotate_to_translate(context, axis=None):
     cleanup_rotation_modal(context)
 
     if axis in {"X", "Y", "Z"}:
-        bpy.ops.cursortransform.translate(
-            'INVOKE_DEFAULT',
-            axis=axis,
-            release_confirm=False,
-        )
+        bpy.ops.cursortransform.translate('INVOKE_DEFAULT', axis=axis, release_confirm=False)
         return
 
-    bpy.ops.cursortransform.translate_free(
-        'INVOKE_DEFAULT',
-        release_confirm=False,
-    )
+    bpy.ops.cursortransform.translate_free('INVOKE_DEFAULT', release_confirm=False)
 
 
 # ── Status bar helpers ───────────────────────────────────────────────────────
 
 
-def _draw_status_rotate_common(
-    header,
-    context,
-    rotation_label,
-    show_constraint_tools=True,
-):
+def _draw_status_rotate_common(header, context, rotation_label, show_constraint_tools=True):
     """Draw the shared rotation shortcuts in the status bar."""
     row = header.layout.row(align=True)
 
@@ -531,10 +504,7 @@ def _draw_status_rotate_common(
 
     if show_constraint_tools:
         window_manager = context.window_manager
-        has_constraint = (
-            window_manager.cursortransform_active_rotate_axis
-            in {"X", "Y", "Z"}
-        )
+        has_constraint = window_manager.cursortransform_active_rotate_axis in {"X", "Y", "Z"}
 
         # Axis constraints
         row.label(text="", icon='EVENT_X')
@@ -581,21 +551,11 @@ def _draw_status_rotate_common(
 
 
 def draw_status_rotate_axis(header, context):
-    _draw_status_rotate_common(
-        header,
-        context,
-        "Trackball",
-        show_constraint_tools=True,
-    )
+    _draw_status_rotate_common(header, context, "Trackball", show_constraint_tools=True)
 
 
 def draw_status_rotate_free(header, context):
-    _draw_status_rotate_common(
-        header,
-        context,
-        "Rotate",
-        show_constraint_tools=False,
-    )
+    _draw_status_rotate_common(header, context, "Rotate", show_constraint_tools=False)
 
 
 def draw_status_translate(header, context):
@@ -706,35 +666,18 @@ def smoothstep(edge_start, edge_end, value):
     if edge_start == edge_end:
         return 0.0
 
-    factor = max(
-        0.0,
-        min(
-            1.0,
-            (value - edge_start) / (edge_end - edge_start),
-        ),
-    )
-
+    factor = max(0.0, min(1.0, (value - edge_start) / (edge_end - edge_start)))
     return factor * factor * (3.0 - 2.0 * factor)
 
 
-def axis_view_alpha(
-    context,
-    axis_vector,
-    min_alpha=0.0,
-    fade_start=0.88,
-    fade_end=0.98,
-):
+def axis_view_alpha(context, axis_vector, min_alpha=0.0, fade_start=0.88, fade_end=0.98):
     """Fade an axis as it becomes aligned with the view direction."""
     region_data = context.region_data
 
     if region_data is None:
         return 1.0
 
-    view_direction = (
-        region_data.view_rotation
-        @ Vector((0.0, 0.0, -1.0))
-    ).normalized()
-
+    view_direction = (region_data.view_rotation @ Vector((0.0, 0.0, -1.0))).normalized()
     axis_vector = axis_vector.normalized()
     alignment = abs(axis_vector.dot(view_direction))
 
@@ -742,24 +685,14 @@ def axis_view_alpha(
     return (1.0 - fade) + (min_alpha * fade)
 
 
-def plane_view_alpha(
-    context,
-    plane_normal,
-    min_alpha=0.0,
-    fade_start=0.16,
-    fade_end=0.26,
-):
+def plane_view_alpha(context, plane_normal, min_alpha=0.0, fade_start=0.16, fade_end=0.26):
     """Fade a plane handle as it becomes edge-on to the view."""
     region_data = context.region_data
 
     if region_data is None:
         return 1.0
 
-    view_direction = (
-        region_data.view_rotation
-        @ Vector((0.0, 0.0, -1.0))
-    ).normalized()
-
+    view_direction = (region_data.view_rotation @ Vector((0.0, 0.0, -1.0))).normalized()
     plane_normal = plane_normal.normalized()
     alignment = abs(plane_normal.dot(view_direction))
 
@@ -832,14 +765,7 @@ def _draw_radius_line(angle, color, line_width):
     batch.draw(shader)
 
 
-def _draw_dashed_line_2d(
-    start,
-    end,
-    color,
-    dash_length,
-    gap_length,
-    line_width,
-):
+def _draw_dashed_line_2d(start, end, color, dash_length, gap_length, line_width):
     """Draw an antialiased dashed line in screen space."""
     if start is None or end is None:
         return
@@ -918,9 +844,7 @@ def _draw_translate_axis_line_op(operator):
         return
 
     center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        operator._start_loc,
+        context.region, context.region_data, operator._start_loc
     )
 
     if center_2d is None:
@@ -950,17 +874,10 @@ def _draw_translate_axis_line_op(operator):
 
     for axis in axes_to_draw:
         axis_index = AXIS_INDEX[axis]
-        axis_vector = (
-            operator._get_active_orient()
-            .col[axis_index]
-            .to_3d()
-            .normalized()
-        )
+        axis_vector = operator._get_active_orient().col[axis_index].to_3d().normalized()
 
         direction_2d = _project_axis_dir_2d(
-            context,
-            operator._start_loc,
-            axis_vector,
+            context, operator._start_loc, axis_vector
         )
 
         if direction_2d is None:
@@ -969,20 +886,11 @@ def _draw_translate_axis_line_op(operator):
         axis_color = axis_highlight_color(axis_colors[axis])
 
         if operator._mmb_held:
-            alpha = (
-                1.0
-                if axis == operator._axis
-                else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
-            )
+            alpha = 1.0 if axis == operator._axis else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
         else:
             alpha = 1.0
 
-        color = (
-            axis_color[0],
-            axis_color[1],
-            axis_color[2],
-            alpha,
-        )
+        color = (axis_color[0], axis_color[1], axis_color[2], alpha)
 
         line_start = Vector((
             center_2d.x - direction_2d.x * half_length_pixels,
@@ -993,11 +901,7 @@ def _draw_translate_axis_line_op(operator):
             center_2d.y + direction_2d.y * half_length_pixels,
         ))
 
-        batch = batch_for_shader(
-            shader,
-            'LINES',
-            {"pos": [line_start, line_end]},
-        )
+        batch = batch_for_shader(shader, 'LINES', {"pos": [line_start, line_end]})
 
         shader.uniform_float("color", color)
         batch.draw(shader)
@@ -1062,29 +966,17 @@ def _screen_angle_delta(center, previous_mouse, current_mouse):
 
 def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
     """Return the mouse angle within a projected ellipse basis."""
-    if (
-        center is None
-        or mouse is None
-        or basis_x is None
-        or basis_y is None
-    ):
+    if center is None or mouse is None or basis_x is None or basis_y is None:
         return None
 
-    coefficients = _solve_2d_basis(
-        mouse - center,
-        basis_x,
-        basis_y,
-    )
+    coefficients = _solve_2d_basis(mouse - center, basis_x, basis_y)
 
     if coefficients is None:
         return None
 
     coefficient_x, coefficient_y = coefficients
 
-    if (
-        abs(coefficient_x) < 1e-8
-        and abs(coefficient_y) < 1e-8
-    ):
+    if abs(coefficient_x) < 1e-8 and abs(coefficient_y) < 1e-8:
         return None
 
     return math.atan2(coefficient_y, coefficient_x)
@@ -1093,32 +985,20 @@ def _ellipse_angle_from_mouse(center, mouse, basis_x, basis_y):
 # ── Screen-space projection helpers ──────────────────────────────────────────
 
 
-def _build_screen_space_ring_basis(
-    context,
-    center_2d,
-    center_3d,
-    ring_matrix,
-    pixel_radius,
-):
-    """
-    Build a fixed-size screen-space basis for a projected rotation ring.
-    """
+def _build_screen_space_ring_basis(context, center_2d, center_3d, ring_matrix, pixel_radius):
+    """Build a fixed-size screen-space basis for a projected rotation ring."""
     if center_2d is None:
         return None, None
 
     sample_distance = ROTATE_RING_BASIS_SAMPLE
 
     point_x_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        center_3d
-        + ring_matrix.col[0].to_3d() * sample_distance,
+        context.region, context.region_data,
+        center_3d + ring_matrix.col[0].to_3d() * sample_distance
     )
     point_y_2d = view3d_utils.location_3d_to_region_2d(
-        context.region,
-        context.region_data,
-        center_3d
-        + ring_matrix.col[1].to_3d() * sample_distance,
+        context.region, context.region_data,
+        center_3d + ring_matrix.col[1].to_3d() * sample_distance
     )
 
     if point_x_2d is None or point_y_2d is None:
@@ -1126,7 +1006,6 @@ def _build_screen_space_ring_basis(
 
     vector_x = point_x_2d - center_2d
     vector_y = point_y_2d - center_2d
-
     length_x = vector_x.length
     length_y = vector_y.length
 
@@ -1135,17 +1014,8 @@ def _build_screen_space_ring_basis(
 
     # Preserve the projected ellipse shape while keeping a fixed screen size.
     maximum_length = max(length_x, length_y)
-
-    basis_x_2d = (
-        vector_x.normalized()
-        * pixel_radius
-        * (length_x / maximum_length)
-    )
-    basis_y_2d = (
-        vector_y.normalized()
-        * pixel_radius
-        * (length_y / maximum_length)
-    )
+    basis_x_2d = vector_x.normalized() * pixel_radius * (length_x / maximum_length)
+    basis_y_2d = vector_y.normalized() * pixel_radius * (length_y / maximum_length)
 
     return basis_x_2d, basis_y_2d
 
@@ -1184,11 +1054,7 @@ def _axis_points_to_screen(context, location, axis):
 
 def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
     """Return the projected axis most aligned with the mouse direction."""
-    if (
-        mouse_2d is None
-        or center_2d is None
-        or not axis_directions_2d
-    ):
+    if mouse_2d is None or center_2d is None or not axis_directions_2d:
         return None
 
     mouse_direction = mouse_2d - center_2d
@@ -1227,10 +1093,7 @@ def _draw_shortcut_axis_line(operator):
 
     gizmo_draws_axis_lines = (
         viewport_allows_gizmo(context)
-        and (
-            location_gizmo_enabled(context)
-            or rotation_gizmo_enabled(context)
-        )
+        and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
     )
 
     if gizmo_draws_axis_lines:
@@ -1243,7 +1106,9 @@ def _draw_shortcut_axis_line(operator):
     else:
         return
 
-    center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, operator._start_loc)
+    center_2d = view3d_utils.location_3d_to_region_2d(
+        context.region, context.region_data, operator._start_loc
+    )
 
     if center_2d is None:
         return
@@ -1260,13 +1125,11 @@ def _draw_shortcut_axis_line(operator):
     axis_colors = get_theme_gizmo_colors(context)
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
+    previous_blend = gpu.state.blend_get()
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
-    shader.uniform_float(
-        "viewportSize",
-        gpu.state.viewport_get()[2:],
-    )
+    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
     shader.uniform_float("lineWidth", scaled_line_width)
 
     for axis in axes_to_draw:
@@ -1274,54 +1137,32 @@ def _draw_shortcut_axis_line(operator):
             direction_2d = operator._mmb_axis_dirs_2d.get(axis)
         else:
             axis_index = AXIS_INDEX[axis]
-            world_axis = (
-                operator._get_active_orient()
-                .col[axis_index]
-                .to_3d()
-                .normalized()
-            )
+            world_axis = operator._get_active_orient().col[axis_index].to_3d().normalized()
             direction_2d = _project_axis_dir_2d(context, operator._start_loc, world_axis)
 
         if direction_2d is None:
             continue
 
-        alpha = (
-            1.0
-            if axis == operator.axis
-            else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
-        )
+        alpha = 1.0 if axis == operator.axis else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
 
         axis_color = axis_highlight_color(axis_colors[axis])
-        color = (
-            axis_color[0],
-            axis_color[1],
-            axis_color[2],
-            alpha,
-        )
+        color = (axis_color[0], axis_color[1], axis_color[2], alpha)
 
         line_start = Vector((
-            center_2d.x
-            - direction_2d.x * half_length_pixels,
-            center_2d.y
-            - direction_2d.y * half_length_pixels,
+            center_2d.x - direction_2d.x * half_length_pixels,
+            center_2d.y - direction_2d.y * half_length_pixels,
         ))
         line_end = Vector((
-            center_2d.x
-            + direction_2d.x * half_length_pixels,
-            center_2d.y
-            + direction_2d.y * half_length_pixels,
+            center_2d.x + direction_2d.x * half_length_pixels,
+            center_2d.y + direction_2d.y * half_length_pixels,
         ))
 
-        batch = batch_for_shader(
-            shader,
-            'LINES',
-            {"pos": [line_start, line_end]},
-        )
+        batch = batch_for_shader(shader, 'LINES', {"pos": [line_start, line_end]})
 
         shader.uniform_float("color", color)
         batch.draw(shader)
 
-    gpu.state.blend_set('NONE')
+    gpu.state.blend_set(previous_blend)
 
 
 def _rotate_guide_draw_op(operator):
@@ -1427,21 +1268,11 @@ def _draw_rotation_cursor(operator):
     gpu.state.blend_set('ALPHA')
 
     shader.bind()
-    shader.uniform_float(
-        "viewportSize",
-        gpu.state.viewport_get()[2:],
-    )
+    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
 
-    vertices = (
-        arrow_vertices("DOWN")
-        + arrow_vertices("UP")
-    )
+    vertices = arrow_vertices("DOWN") + arrow_vertices("UP")
 
-    batch = batch_for_shader(
-        shader,
-        'LINES',
-        {"pos": vertices},
-    )
+    batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
 
     # Blender draws a wider dark background pass first.
     shader.uniform_float("lineWidth", arrow_width * 2.0)
@@ -1547,17 +1378,10 @@ def _draw_trackball_cursor(operator):
             for vertex in arrow_vertices(direction)
         )
 
-    background_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {"pos": background_vertices},
-    )
+    background_batch = batch_for_shader(shader, 'LINES', {"pos": background_vertices})
 
     shader.uniform_float("lineWidth", arrow_width * 2.0)
-    shader.uniform_float(
-        "color",
-        (0.0, 0.0, 0.0, 0.8),
-    )
+    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
     background_batch.draw(shader)
 
     # Blender derives the axis colors from the grid and axis theme colors.
@@ -1574,43 +1398,20 @@ def _draw_trackball_cursor(operator):
         }[axis])
 
         color = grid.lerp(axis_theme, 0.5)
-        return tuple(
-            max(0.0, component - (10.0 / 255.0))
-            for component in color
-        )
+        return tuple(max(0.0, component - (10.0 / 255.0)) for component in color)
 
     shader.uniform_float("lineWidth", arrow_width)
 
-    horizontal_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {
-            "pos":
-                arrow_vertices("RIGHT")
-                + arrow_vertices("LEFT")
-        },
-    )
+    horizontal_vertices = arrow_vertices("RIGHT") + arrow_vertices("LEFT")
+    horizontal_batch = batch_for_shader(shader, 'LINES', {"pos": horizontal_vertices})
 
-    shader.uniform_float(
-        "color",
-        (*axis_color("X"), 1.0),
-    )
+    shader.uniform_float("color", (*axis_color("X"), 1.0))
     horizontal_batch.draw(shader)
 
-    vertical_batch = batch_for_shader(
-        shader,
-        'LINES',
-        {
-            "pos":
-                arrow_vertices("UP")
-                + arrow_vertices("DOWN")
-        },
-    )
+    vertical_vertices = arrow_vertices("UP") + arrow_vertices("DOWN")
+    vertical_batch = batch_for_shader(shader, 'LINES', {"pos": vertical_vertices})
 
-    shader.uniform_float(
-        "color",
-        (*axis_color("Y"), 1.0),
-    )
+    shader.uniform_float("color", (*axis_color("Y"), 1.0))
     vertical_batch.draw(shader)
 
     gpu.state.blend_set(previous_blend)
@@ -1653,25 +1454,17 @@ class NumericInputState:
 
     def next_component(self):
         """Move to the next numeric component."""
-        self.active_component = (
-            self.active_component + 1
-        ) % self.component_count
+        self.active_component = (self.active_component + 1) % self.component_count
 
     def move_cursor_left(self):
         """Move the input cursor one character left."""
         component = self.active_component
-        self.cursors[component] = max(
-            0,
-            self.cursors[component] - 1,
-        )
+        self.cursors[component] = max(0, self.cursors[component] - 1)
 
     def move_cursor_right(self):
         """Move the input cursor one character right."""
         component = self.active_component
-        self.cursors[component] = min(
-            len(self.inputs[component]),
-            self.cursors[component] + 1,
-        )
+        self.cursors[component] = min(len(self.inputs[component]), self.cursors[component] + 1)
 
     def move_cursor_home(self):
         """Move the input cursor to the beginning."""
@@ -1680,9 +1473,7 @@ class NumericInputState:
     def move_cursor_end(self):
         """Move the input cursor to the end."""
         component = self.active_component
-        self.cursors[component] = len(
-            self.inputs[component]
-        )
+        self.cursors[component] = len(self.inputs[component])
 
     def insert(self, text):
         """Insert text at the current input cursor."""
@@ -1690,11 +1481,7 @@ class NumericInputState:
         cursor = self.cursors[component]
         value = self.inputs[component]
 
-        self.inputs[component] = (
-            value[:cursor]
-            + text
-            + value[cursor:]
-        )
+        self.inputs[component] = value[:cursor] + text + value[cursor:]
         self.cursors[component] += len(text)
 
     def backspace(self):
@@ -1707,11 +1494,9 @@ class NumericInputState:
 
         value = self.inputs[component]
 
-        self.inputs[component] = (
-            value[:cursor - 1]
-            + value[cursor:]
-        )
+        self.inputs[component] = value[:cursor - 1] + value[cursor:]
         self.cursors[component] -= 1
+
         return True
 
     def delete(self):
@@ -1723,10 +1508,7 @@ class NumericInputState:
         if cursor >= len(value):
             return False
 
-        self.inputs[component] = (
-            value[:cursor]
-            + value[cursor + 1:]
-        )
+        self.inputs[component] = value[:cursor] + value[cursor + 1:]
         return True
 
     def copy(self):
@@ -1744,11 +1526,7 @@ class NumericInputState:
         cursor = self.cursors[component]
         value = self.inputs[component]
 
-        candidate = (
-            value[:cursor]
-            + text
-            + value[cursor:]
-        )
+        candidate = value[:cursor] + text + value[cursor:]
 
         try:
             if '/' in candidate:
@@ -1778,20 +1556,14 @@ class NumericInputState:
         value = self.inputs[component]
         cursor = self.cursors[component]
 
-        return (
-            value[:cursor]
-            + "|"
-            + value[cursor:]
-        )
+        return value[:cursor] + "|" + value[cursor:]
 
     def display_text(self, component=None, value_formatter=None):
         """Return Blender-style text for a numeric input component."""
         if component is None:
             component = self.active_component
 
-        is_active_component = (
-            component == self.active_component
-        )
+        is_active_component = component == self.active_component
         was_edited = self.edited[component]
         value = self.inputs[component]
 
@@ -1980,18 +1752,11 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
         _ROTATE_DRAW_STATE.total_angle = 0.0
 
-        self._guide_handler = (
-            bpy.types.SpaceView3D.draw_handler_add(
-                _rotate_guide_draw_op,
-                (self,),
-                'WINDOW',
-                'POST_PIXEL',
-            )
+        self._guide_handler = bpy.types.SpaceView3D.draw_handler_add(
+            _rotate_guide_draw_op, (self,), 'WINDOW', 'POST_PIXEL'
         )
 
-        context.workspace.status_text_set(
-            draw_status_rotate_axis
-        )
+        context.workspace.status_text_set(draw_status_rotate_axis)
         context.window.cursor_modal_set('NONE')
 
         window_manager = context.window_manager
@@ -2011,10 +1776,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     def _remove_guide_handler(self):
         """Remove the guide handler and clear its cached state."""
         if getattr(self, "_guide_handler", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(
-                self._guide_handler,
-                'WINDOW',
-            )
+            bpy.types.SpaceView3D.draw_handler_remove(self._guide_handler, 'WINDOW')
             self._guide_handler = None
 
         _ROTATE_DRAW_STATE.reset()
@@ -2065,9 +1827,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             angle_text = self._format_angle(math.degrees(angle))
 
         if self.axis == "VIEW":
-            context.area.header_text_set(
-                f"Rotation: {angle_text}"
-            )
+            context.area.header_text_set(f"Rotation: {angle_text}")
             return
 
         if self._using_alternate_orient:
@@ -2075,10 +1835,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         else:
             orientation_label = get_orient_type(context).lower()
 
-        context.area.header_text_set(
-            f"Rotation: {angle_text} "
-            f"along {orientation_label} {self.axis}"
-        )
+        context.area.header_text_set(f"Rotation: {angle_text} along {orientation_label} {self.axis}")
 
     def _switch_axis_constraint(self, context, event, new_axis, use_alternate_orient=False):
         """Switch the rotation constraint while preserving Blender-style transform input."""
@@ -2126,46 +1883,20 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def _advance_axis_cycle(self, context, event, axis):
-        """
-        Advance the active axis through primary, alternate, and View modes.
-        """
-        if (
-            self.axis == axis
-            and not self._using_alternate_orient
-        ):
-            self._switch_axis_constraint(
-                context,
-                event,
-                axis,
-                use_alternate_orient=True,
-            )
-        elif (
-            self.axis == axis
-            and self._using_alternate_orient
-        ):
-            self._switch_axis_constraint(
-                context,
-                event,
-                "VIEW",
-            )
+        """Advance the active axis through primary, alternate, and View modes."""
+        if self.axis == axis and not self._using_alternate_orient:
+            self._switch_axis_constraint(context, event, axis, use_alternate_orient=True)
+        elif self.axis == axis and self._using_alternate_orient:
+            self._switch_axis_constraint(context, event, "VIEW")
         else:
-            self._switch_axis_constraint(
-                context,
-                event,
-                axis,
-            )
+            self._switch_axis_constraint(context, event, axis)
 
     def _clear_constraints(self, context, event):
         """Clear an axis constraint and return to View rotation."""
         if self.axis not in {"X", "Y", "Z"}:
             return
 
-        self._switch_axis_constraint(
-            context,
-            event,
-            "VIEW",
-            use_alternate_orient=False,
-        )
+        self._switch_axis_constraint(context, event, "VIEW", use_alternate_orient=False)
 
     def _swap_to_trackball(self, context):
         """Switch from constrained rotation to trackball rotation."""
@@ -2176,30 +1907,20 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         _ROTATE_TRACKBALL_HANDOFF = {
             "rot_mode": self._rot_mode,
-            "start_rot": (
-                self._start_rot.copy()
-                if hasattr(self._start_rot, "copy")
-                else self._start_rot
-            ),
+            "start_rot": self._start_rot.copy() if hasattr(self._start_rot, "copy") else self._start_rot,
             "start_quat": self._start_quat.copy(),
             "start_euler_compat": self._start_euler_compat.copy(),
             "start_mouse_2d": self._guide_start_mouse_2d.copy(),
         }
 
-        restore_cursor_rotation(
-            context.scene.cursor,
-            self._rot_mode,
-            self._start_rot,
-        )
+        restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
 
         self._remove_guide_handler()
         cleanup_rotation_modal(context)
 
         _ROTATE_PREVIOUS_AXIS = previous_axis
 
-        bpy.ops.cursortransform.rotate_free_modal(
-            'INVOKE_DEFAULT'
-        )
+        bpy.ops.cursortransform.rotate_free_modal('INVOKE_DEFAULT')
 
     def _enter_mmb_pickup(self, context, event):
         """Begin automatic axis selection with the middle mouse button."""
@@ -2209,12 +1930,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         for axis in ("X", "Y", "Z"):
             axis_index = AXIS_INDEX[axis]
-            world_axis = (
-                self._get_active_orient()
-                .col[axis_index]
-                .to_3d()
-                .normalized()
-            )
+            world_axis = self._get_active_orient().col[axis_index].to_3d().normalized()
 
             self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(context, self._start_loc, world_axis)
 
@@ -2226,25 +1942,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     def _maybe_switch_axis_by_proximity(self, context, event):
         """Switch to the projected axis most aligned with the mouse."""
-        mouse_2d = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
 
         new_axis = _closest_axis_to_mouse(
-            mouse_2d,
-            self._guide_center_2d,
-            self._mmb_axis_dirs_2d,
+            mouse_2d, self._guide_center_2d, self._mmb_axis_dirs_2d
         )
 
         if new_axis is not None and new_axis != self.axis:
             self._switch_axis_constraint(
-                context,
-                event,
-                new_axis,
-                use_alternate_orient=(
-                    self._using_alternate_orient
-                ),
+                context, event, new_axis,
+                use_alternate_orient=self._using_alternate_orient
             )
             return True
 
@@ -2263,20 +1970,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         cursor = context.scene.cursor
         axis_vector = self._get_frozen_axis_vector()
 
-        delta_quaternion = Quaternion(
-            axis_vector,
-            angle,
-        )
-        new_quaternion = (
-            delta_quaternion
-            @ self._start_quat
-        )
+        delta_quaternion = Quaternion(axis_vector, angle)
+        new_quaternion = delta_quaternion @ self._start_quat
 
-        set_cursor_from_quaternion(
-            cursor,
-            new_quaternion,
-            self._start_euler_compat,
-        )
+        set_cursor_from_quaternion(cursor, new_quaternion, self._start_euler_compat)
 
     def _apply_arrow_input(self, context, event):
         """Move the effective rotation input by one screen pixel."""
@@ -2294,9 +1991,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
     def _apply_mouse_input(self, context, event, current_mouse):
         """Apply Blender-style angular mouse input."""
         angle_delta = _screen_angle_delta(
-            self._guide_center_2d,
-            self._guide_previous_mouse_2d,
-            current_mouse,
+            self._guide_center_2d, self._guide_previous_mouse_2d, current_mouse
         )
 
         if event.shift:
@@ -2462,10 +2157,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         ))
 
         self._cursor_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _draw_trackball_cursor,
-            (self,),
-            'WINDOW',
-            'POST_PIXEL',
+            _draw_trackball_cursor, (self,), 'WINDOW', 'POST_PIXEL'
         )
 
         context.window.cursor_modal_set('NONE')
@@ -2479,10 +2171,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
     def _remove_cursor_handler(self):
         """Remove the custom trackball cursor."""
         if getattr(self, "_cursor_handler", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(
-                self._cursor_handler,
-                'WINDOW',
-            )
+            bpy.types.SpaceView3D.draw_handler_remove(self._cursor_handler, 'WINDOW')
             self._cursor_handler = None
 
         self._cursor_mouse_2d = None
@@ -2521,18 +2210,11 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
     def _apply_trackball_rotation(self, context, phi):
         """Apply the current trackball rotation."""
-        perspective_inverse = (
-            context.region_data.perspective_matrix.inverted()
-        )
+        perspective_inverse = context.region_data.perspective_matrix.inverted()
 
         axis_x = perspective_inverse.col[0].to_3d().normalized()
         axis_y = perspective_inverse.col[1].to_3d().normalized()
-
-        axis = (
-            axis_x * phi.x
-            + axis_y * phi.y
-        )
-
+        axis = axis_x * phi.x + axis_y * phi.y
         angle = axis.length
 
         if angle <= 1e-8:
@@ -2540,15 +2222,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         else:
             axis.normalize()
             delta_quaternion = Quaternion(axis, angle)
-            new_quaternion = (
-                delta_quaternion
-                @ self._start_quat
-            )
+            new_quaternion = delta_quaternion @ self._start_quat
 
         set_cursor_from_quaternion(
-            context.scene.cursor,
-            new_quaternion,
-            self._start_euler_compat,
+            context.scene.cursor, new_quaternion, self._start_euler_compat
         )
 
         self._update_header_text(context, phi)
@@ -2766,9 +2443,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._numeric = NumericInputState(component_count=3)
 
         self._start_orient = build_orient_matrix(context).copy()
-        self._start_orient_alternate = (
-            build_alternate_orient_matrix(context).copy()
-        )
+        self._start_orient_alternate = build_alternate_orient_matrix(context).copy()
 
         window_manager = context.window_manager
 
@@ -2780,16 +2455,10 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         _TRANSLATE_GHOST_START_ORIENT = None
         _TRANSLATE_ACTIVE_ORIENT = None
 
-        if (
-            self.axis in {"X", "Y", "Z"}
-            or self.plane in {"XY", "XZ", "YZ"}
-        ):
+        if self.axis in {"X", "Y", "Z"} or self.plane in {"XY", "XZ", "YZ"}:
             # Gizmo drags already have a constraint selected, so use the
             # click position as the mouse baseline immediately.
-            self._start_mouse = Vector((
-                event.mouse_region_x,
-                event.mouse_region_y,
-            ))
+            self._start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
             self._waiting_for_first_mousemove = False
 
             self._cycle_state = 1
@@ -2797,36 +2466,19 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             if self.axis in {"X", "Y", "Z"}:
                 self._axis = self.axis
                 self._plane_exclude_axis = ""
-
-                window_manager.cursortransform_active_translate_axis = (
-                    self._axis
-                )
+                window_manager.cursortransform_active_translate_axis = self._axis
             else:
                 self._axis = ""
-                self._plane_exclude_axis = (
-                    PLANE_NORMAL_AXIS[self.plane]
-                )
+                self._plane_exclude_axis = PLANE_NORMAL_AXIS[self.plane]
+                window_manager.cursortransform_active_translate_axis = self.plane
 
-                window_manager.cursortransform_active_translate_axis = (
-                    self.plane
-                )
-
-            _TRANSLATE_GHOST_START_ORIENT = (
-                self._get_active_orient().copy()
-            )
-            _TRANSLATE_ACTIVE_ORIENT = (
-                self._get_active_orient().copy()
-            )
+            _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+            _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
         else:
             window_manager.cursortransform_active_translate_axis = ""
 
-        self._axis_line_handler = (
-            bpy.types.SpaceView3D.draw_handler_add(
-                _draw_translate_axis_line_op,
-                (self,),
-                'WINDOW',
-                'POST_PIXEL',
-            )
+        self._axis_line_handler = bpy.types.SpaceView3D.draw_handler_add(
+            _draw_translate_axis_line_op, (self,), 'WINDOW', 'POST_PIXEL'
         )
 
         context.window.cursor_modal_set('SCROLL_XY')
@@ -2842,10 +2494,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         if getattr(self, "_axis_line_handler", None) is None:
             return
 
-        bpy.types.SpaceView3D.draw_handler_remove(
-            self._axis_line_handler,
-            'WINDOW',
-        )
+        bpy.types.SpaceView3D.draw_handler_remove(self._axis_line_handler, 'WINDOW')
         self._axis_line_handler = None
 
     def _get_active_orient(self):
@@ -2862,12 +2511,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         axis_index = AXIS_INDEX[self._axis]
 
-        return (
-            self._get_active_orient()
-            .col[axis_index]
-            .to_3d()
-            .normalized()
-        )
+        return self._get_active_orient().col[axis_index].to_3d().normalized()
 
     def _numeric_component_count(self):
         """Return the number of editable numeric translation components."""
@@ -2883,9 +2527,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         """Move to the next editable numeric translation component."""
         component_count = self._numeric_component_count()
 
-        self._numeric.active_component = (
-            self._numeric.active_component + 1
-        ) % component_count
+        self._numeric.active_component = (self._numeric.active_component + 1) % component_count
 
     def _format_distance(self, value):
         return f"{value:.4f} m"
@@ -2893,11 +2535,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     def _format_numeric_distance(self, value):
         """Format a numeric input value like Blender's transform header."""
         return bpy.utils.units.to_string(
-            'METRIC',
-            'LENGTH',
-            value,
-            precision=4,
-            split_unit=True,
+            'METRIC', 'LENGTH', value, precision=4, split_unit=True
         )
 
     def _get_orient_label(self, context):
@@ -2914,26 +2552,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             orientation = self._get_active_orient()
 
             plane_axes = [
-                axis
-                for axis in ("X", "Y", "Z")
+                axis for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             ]
 
             first_axis = plane_axes[0]
             second_axis = plane_axes[1]
 
-            first_vector = (
-                orientation
-                .col[AXIS_INDEX[first_axis]]
-                .to_3d()
-                .normalized()
-            )
-            second_vector = (
-                orientation
-                .col[AXIS_INDEX[second_axis]]
-                .to_3d()
-                .normalized()
-            )
+            first_vector = orientation.col[AXIS_INDEX[first_axis]].to_3d().normalized()
+            second_vector = orientation.col[AXIS_INDEX[second_axis]].to_3d().normalized()
 
             first_amount = delta.dot(first_vector)
             second_amount = delta.dot(second_vector)
@@ -3008,10 +2635,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         if self._start_mouse is not None:
             return
 
-        self._start_mouse = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        self._start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         self._waiting_for_first_mousemove = False
 
     def _set_axis_cycle(self, context, event, axis):
@@ -3037,21 +2661,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         )
 
         if self._axis in {"X", "Y", "Z"}:
-            _TRANSLATE_GHOST_START_ORIENT = (
-                self._get_active_orient().copy()
-            )
-            _TRANSLATE_ACTIVE_ORIENT = (
-                self._get_active_orient().copy()
-            )
+            _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+            _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
         else:
             _TRANSLATE_GHOST_START_ORIENT = None
             _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(
-            context,
-            event,
-        )
-
+        context.scene.cursor.location = self._mouse_to_location(context, event)
         self._update_header_text(context)
         self._update_status_bar(context)
         tag_viewport_redraw(context)
@@ -3079,30 +2695,20 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane = "".join(
-                axis
-                for axis in ("X", "Y", "Z")
+                axis for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             )
 
-            context.window_manager.cursortransform_active_translate_axis = (
-                plane
-            )
+            context.window_manager.cursortransform_active_translate_axis = plane
 
-            _TRANSLATE_GHOST_START_ORIENT = (
-                self._get_active_orient().copy()
-            )
-            _TRANSLATE_ACTIVE_ORIENT = (
-                self._get_active_orient().copy()
-            )
+            _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+            _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
         else:
             context.window_manager.cursortransform_active_translate_axis = ""
             _TRANSLATE_GHOST_START_ORIENT = None
             _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(
-            context,
-            event,
-        )
+        context.scene.cursor.location = self._mouse_to_location(context, event)
 
         self._update_header_text(context)
         self._update_status_bar(context)
@@ -3124,10 +2730,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         _TRANSLATE_GHOST_START_ORIENT = None
         _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.scene.cursor.location = self._mouse_to_location(
-            context,
-            event,
-        )
+        context.scene.cursor.location = self._mouse_to_location(context, event)
 
         self._update_header_text(context)
         self._update_status_bar(context)
@@ -3135,37 +2738,25 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
     def _switch_to_rotate(self, context):
         """Finish translation and start cursor rotation."""
-        axis = (
-            self._axis
-            if self._axis in {"X", "Y", "Z"}
-            else None
-        )
+        axis = self._axis if self._axis in {"X", "Y", "Z"} else None
 
         self._finish(context)
 
         if axis is not None:
-            bpy.ops.cursortransform.rotate_modal(
-                'INVOKE_DEFAULT',
-                axis=axis,
-            )
+            bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis=axis)
             return
 
         bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
 
     def _handoff_to_native_translate(self, context):
         """Continue translation using Blender's native transform operator."""
-        axis = (
-            self._axis
-            if self._axis in {"X", "Y", "Z"}
-            else None
-        )
+        axis = self._axis if self._axis in {"X", "Y", "Z"} else None
 
         plane = None
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane = "".join(
-                axis_name
-                for axis_name in ("X", "Y", "Z")
+                axis_name for axis_name in ("X", "Y", "Z")
                 if axis_name != self._plane_exclude_axis
             )
 
@@ -3173,26 +2764,19 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if axis is not None:
             bpy.ops.cursortransform.translate(
-                'INVOKE_DEFAULT',
-                axis=axis,
-                release_confirm=False,
-                use_alternate_orient=self._using_alternate_orient,
+                'INVOKE_DEFAULT', axis=axis, release_confirm=False,
+                use_alternate_orient=self._using_alternate_orient
             )
             return
 
         if plane is not None:
             bpy.ops.cursortransform.translate_plane(
-                'INVOKE_DEFAULT',
-                plane=plane,
-                release_confirm=False,
-                use_alternate_orient=self._using_alternate_orient,
+                'INVOKE_DEFAULT', plane=plane, release_confirm=False,
+                use_alternate_orient=self._using_alternate_orient
             )
             return
 
-        bpy.ops.cursortransform.translate_free(
-            'INVOKE_DEFAULT',
-            release_confirm=False,
-        )
+        bpy.ops.cursortransform.translate_free('INVOKE_DEFAULT', release_confirm=False)
 
     def _enter_mmb_pickup(self, context):
         """Begin automatic axis selection with the middle mouse button."""
@@ -3201,17 +2785,10 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         for axis in ("X", "Y", "Z"):
             axis_index = AXIS_INDEX[axis]
-            axis_vector = (
-                self._get_active_orient()
-                .col[axis_index]
-                .to_3d()
-                .normalized()
-            )
+            axis_vector = self._get_active_orient().col[axis_index].to_3d().normalized()
 
             self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(
-                context,
-                self._start_loc,
-                axis_vector,
+                context, self._start_loc, axis_vector
             )
 
         tag_viewport_redraw(context)
@@ -3232,13 +2809,8 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._using_alternate_orient = False
 
         context.window_manager.cursortransform_active_translate_axis = axis
-        _TRANSLATE_GHOST_START_ORIENT = (
-            self._get_active_orient().copy()
-        )
-
-        _TRANSLATE_ACTIVE_ORIENT = (
-            self._get_active_orient().copy()
-        )
+        _TRANSLATE_GHOST_START_ORIENT = self._get_active_orient().copy()
+        _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
 
         context.scene.cursor.location = self._mouse_to_location(context, event)
 
@@ -3247,29 +2819,18 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def _maybe_switch_axis_by_proximity(self, context, event):
-        mouse_2d = Vector((
-            event.mouse_region_x,
-            event.mouse_region_y,
-        ))
+        mouse_2d = Vector((event.mouse_region_x, event.mouse_region_y))
 
         center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region,
-            context.region_data,
-            self._start_loc,
+            context.region, context.region_data, self._start_loc
         )
 
         new_axis = _closest_axis_to_mouse(
-            mouse_2d,
-            center_2d,
-            self._mmb_axis_dirs_2d,
+            mouse_2d, center_2d, self._mmb_axis_dirs_2d
         )
 
         if new_axis is not None and new_axis != self._axis:
-            self._set_axis_from_mmb(
-                context,
-                event,
-                new_axis,
-            )
+            self._set_axis_from_mmb(context, event, new_axis)
 
     def _mouse_to_free_location(self, context, event):
         region = context.region
@@ -3277,9 +2838,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         base_location = self._input_start_loc()
 
         start_2d = view3d_utils.location_3d_to_region_2d(
-            region,
-            region_data,
-            base_location,
+            region, region_data, base_location
         )
 
         if start_2d is None:
@@ -3288,28 +2847,19 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         target_2d = start_2d + self._mouse_delta_2d(event)
 
         ray_origin = view3d_utils.region_2d_to_origin_3d(
-            region,
-            region_data,
-            target_2d,
+            region, region_data, target_2d
         )
         ray_direction = view3d_utils.region_2d_to_vector_3d(
-            region,
-            region_data,
-            target_2d,
+            region, region_data, target_2d
         )
 
-        view_normal = (
-            region_data.view_rotation
-            @ Vector((0.0, 0.0, -1.0))
-        )
+        view_normal = region_data.view_rotation @ Vector((0.0, 0.0, -1.0))
         denominator = ray_direction.dot(view_normal)
 
         if abs(denominator) < 1e-8:
             return base_location.copy()
 
-        distance = (
-            base_location - ray_origin
-        ).dot(view_normal) / denominator
+        distance = (base_location - ray_origin).dot(view_normal) / denominator
 
         return ray_origin + ray_direction * distance
 
@@ -3319,23 +2869,12 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
             plane_axes = [
-                axis
-                for axis in ("X", "Y", "Z")
+                axis for axis in ("X", "Y", "Z")
                 if axis != self._plane_exclude_axis
             ]
 
-            first_vector = (
-                orientation
-                .col[AXIS_INDEX[plane_axes[0]]]
-                .to_3d()
-                .normalized()
-            )
-            second_vector = (
-                orientation
-                .col[AXIS_INDEX[plane_axes[1]]]
-                .to_3d()
-                .normalized()
-            )
+            first_vector = orientation.col[AXIS_INDEX[plane_axes[0]]].to_3d().normalized()
+            second_vector = orientation.col[AXIS_INDEX[plane_axes[1]]].to_3d().normalized()
 
             context.scene.cursor.location = (
                 self._start_loc
@@ -3349,10 +2888,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             if axis_vector is None:
                 return
 
-            context.scene.cursor.location = (
-                self._start_loc
-                + axis_vector * self._numeric.value(0)
-            )
+            context.scene.cursor.location = self._start_loc + axis_vector * self._numeric.value(0)
 
         else:
             context.scene.cursor.location = (
@@ -3398,14 +2934,10 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         base_location = self._input_start_loc()
 
         start_2d = view3d_utils.location_3d_to_region_2d(
-            context.region,
-            context.region_data,
-            base_location,
+            context.region, context.region_data, base_location
         )
         end_2d = view3d_utils.location_3d_to_region_2d(
-            context.region,
-            context.region_data,
-            base_location + world_vector,
+            context.region, context.region_data, base_location + world_vector
         )
 
         if start_2d is None or end_2d is None:
@@ -3438,19 +2970,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             self._precision_start_loc = None
 
     def _input_start_mouse(self):
-        if (
-            self._precision_active
-            and self._precision_start_mouse is not None
-        ):
+        if self._precision_active and self._precision_start_mouse is not None:
             return self._precision_start_mouse
 
         return self._start_mouse
 
     def _input_start_loc(self):
-        if (
-            self._precision_active
-            and self._precision_start_loc is not None
-        ):
+        if self._precision_active and self._precision_start_loc is not None:
             return self._precision_start_loc
 
         return self._start_loc
@@ -3461,10 +2987,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         if axis_vector is None:
             return self._mouse_to_free_location(context, event)
 
-        projected_axis = self._project_world_vector_to_2d(
-            context,
-            axis_vector,
-        )
+        projected_axis = self._project_world_vector_to_2d(context, axis_vector)
 
         if projected_axis is None:
             return self._input_start_loc().copy()
@@ -3472,10 +2995,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         axis_direction_2d = projected_axis.normalized()
         mouse_delta = self._mouse_delta_2d(event)
 
-        amount = (
-            mouse_delta.dot(axis_direction_2d)
-            / projected_axis.length
-        )
+        amount = mouse_delta.dot(axis_direction_2d) / projected_axis.length
 
         return self._input_start_loc() + axis_vector * amount
 
@@ -3484,42 +3004,23 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return self._mouse_to_free_location(context, event)
 
         plane_axes = [
-            axis
-            for axis in ("X", "Y", "Z")
+            axis for axis in ("X", "Y", "Z")
             if axis != self._plane_exclude_axis
         ]
 
         orientation = self._get_active_orient()
 
-        first_vector = (
-            orientation
-            .col[AXIS_INDEX[plane_axes[0]]]
-            .to_3d()
-            .normalized()
-        )
-        second_vector = (
-            orientation
-            .col[AXIS_INDEX[plane_axes[1]]]
-            .to_3d()
-            .normalized()
-        )
+        first_vector = orientation.col[AXIS_INDEX[plane_axes[0]]].to_3d().normalized()
+        second_vector = orientation.col[AXIS_INDEX[plane_axes[1]]].to_3d().normalized()
 
-        first_basis_2d = self._project_world_vector_to_2d(
-            context,
-            first_vector,
-        )
-        second_basis_2d = self._project_world_vector_to_2d(
-            context,
-            second_vector,
-        )
+        first_basis_2d = self._project_world_vector_to_2d(context, first_vector)
+        second_basis_2d = self._project_world_vector_to_2d(context, second_vector)
 
         if first_basis_2d is None or second_basis_2d is None:
             return self._input_start_loc().copy()
 
         coefficients = _solve_2d_basis(
-            self._mouse_delta_2d(event),
-            first_basis_2d,
-            second_basis_2d,
+            self._mouse_delta_2d(event), first_basis_2d, second_basis_2d
         )
 
         if coefficients is None:
@@ -3708,12 +3209,8 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
             self.axis
         )
 
-        _TRANSLATE_GHOST_START_LOC = (
-            context.scene.cursor.location.copy()
-        )
-        _TRANSLATE_GHOST_START_ORIENT = (
-            orientation_matrix.copy()
-        )
+        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
+        _TRANSLATE_GHOST_START_ORIENT = orientation_matrix.copy()
 
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT',
@@ -3745,11 +3242,7 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
 
     def invoke(self, context, _event):
         """Hand off to the custom translation modal and finish."""
-        bpy.ops.cursortransform.translate_modal(
-            'INVOKE_DEFAULT',
-            axis=self.axis,
-            plane=self.plane,
-        )
+        bpy.ops.cursortransform.translate_modal('INVOKE_DEFAULT', axis=self.axis, plane=self.plane)
         return {'FINISHED'}
 
 
@@ -3774,15 +3267,11 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
 
         context.window_manager.cursortransform_active_translate_axis = ""
 
-        _TRANSLATE_GHOST_START_LOC = (
-            context.scene.cursor.location.copy()
-        )
+        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
         _TRANSLATE_GHOST_START_ORIENT = None
 
         bpy.ops.transform.translate(
-            'INVOKE_DEFAULT',
-            cursor_transform=True,
-            release_confirm=self.release_confirm,
+            'INVOKE_DEFAULT', cursor_transform=True, release_confirm=self.release_confirm
         )
 
         return {'FINISHED'}
@@ -3816,16 +3305,10 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
             orientation_matrix = build_orient_matrix(context)
             orientation_type = get_orient_type(context)
 
-        context.window_manager.cursortransform_active_translate_axis = (
-            self.plane
-        )
+        context.window_manager.cursortransform_active_translate_axis = self.plane
 
-        _TRANSLATE_GHOST_START_LOC = (
-            context.scene.cursor.location.copy()
-        )
-        _TRANSLATE_GHOST_START_ORIENT = (
-            orientation_matrix.copy()
-        )
+        _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
+        _TRANSLATE_GHOST_START_ORIENT = orientation_matrix.copy()
 
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT',
@@ -3852,10 +3335,7 @@ class CURSORTRANSFORM_OT_rotate_x(bpy.types.Operator):
         return active_tool_is_cursor(context)
 
     def invoke(self, context, _event):
-        return bpy.ops.cursortransform.rotate_modal(
-            'INVOKE_DEFAULT',
-            axis="X",
-        )
+        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="X")
 
 
 class CURSORTRANSFORM_OT_rotate_y(bpy.types.Operator):
@@ -3870,10 +3350,7 @@ class CURSORTRANSFORM_OT_rotate_y(bpy.types.Operator):
         return active_tool_is_cursor(context)
 
     def invoke(self, context, _event):
-        return bpy.ops.cursortransform.rotate_modal(
-            'INVOKE_DEFAULT',
-            axis="Y",
-        )
+        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Y")
 
 
 class CURSORTRANSFORM_OT_rotate_z(bpy.types.Operator):
@@ -3888,10 +3365,7 @@ class CURSORTRANSFORM_OT_rotate_z(bpy.types.Operator):
         return active_tool_is_cursor(context)
 
     def invoke(self, context, _event):
-        return bpy.ops.cursortransform.rotate_modal(
-            'INVOKE_DEFAULT',
-            axis="Z",
-        )
+        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Z")
 
 
 class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
@@ -3906,10 +3380,7 @@ class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
         return active_tool_is_cursor(context)
 
     def invoke(self, context, _event):
-        return bpy.ops.cursortransform.rotate_modal(
-            'INVOKE_DEFAULT',
-            axis="VIEW",
-        )
+        return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="VIEW")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3928,21 +3399,14 @@ class CURSORTRANSFORM_GT_filled_dot(bpy.types.Gizmo):
             return
 
         self._shape = self.new_custom_shape(
-            'TRIS',
-            _build_circle_fan_vertices(
-                radius=0.06,
-                segments=24,
-            ),
+            'TRIS', _build_circle_fan_vertices(radius=0.06, segments=24)
         )
 
     def draw(self, _context):
         self.draw_custom_shape(self._shape)
 
     def draw_select(self, _context, select_id):
-        self.draw_custom_shape(
-            self._shape,
-            select_id=select_id,
-        )
+        self.draw_custom_shape(self._shape, select_id=select_id)
 
 
 class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
@@ -3977,66 +3441,28 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
             (-half_size, -half_size, 0.0),
         ]
 
-        self._fill_shape = self.new_custom_shape(
-            'TRIS',
-            fill_vertices,
-        )
-        self._outline_shape = self.new_custom_shape(
-            'LINES',
-            outline_vertices,
-        )
+        self._fill_shape = self.new_custom_shape('TRIS', fill_vertices)
+        self._outline_shape = self.new_custom_shape('LINES', outline_vertices)
 
     def draw(self, _context):
         """Draw the plane handle fill and outline."""
-        fill_color = getattr(
-            self,
-            "fill_color",
-            (1.0, 1.0, 1.0),
-        )
-        outline_color = getattr(
-            self,
-            "outline_color",
-            fill_color,
-        )
+        fill_color = getattr(self, "fill_color", (1.0, 1.0, 1.0))
+        outline_color = getattr(self, "outline_color", fill_color)
 
-        fill_alpha = float(
-            getattr(self, "fill_alpha", 0.18)
-        )
-        outline_alpha = float(
-            getattr(self, "outline_alpha", 1.0)
-        )
-        fill_highlight_alpha = float(
-            getattr(
-                self,
-                "fill_alpha_highlight",
-                fill_alpha,
-            )
-        )
-        outline_highlight_alpha = float(
-            getattr(
-                self,
-                "outline_alpha_highlight",
-                outline_alpha,
-            )
-        )
+        fill_alpha = float(getattr(self, "fill_alpha", 0.18))
+        outline_alpha = float(getattr(self, "outline_alpha", 1.0))
+        fill_highlight_alpha = float(getattr(self, "fill_alpha_highlight", fill_alpha))
+        outline_highlight_alpha = float(getattr(self, "outline_alpha_highlight", outline_alpha))
 
         original_color = self.color
         original_alpha = self.alpha
 
         self.color = fill_color
-        self.alpha = (
-            fill_highlight_alpha
-            if self.is_highlight
-            else fill_alpha
-        )
+        self.alpha = fill_highlight_alpha if self.is_highlight else fill_alpha
         self.draw_custom_shape(self._fill_shape)
 
         self.color = outline_color
-        self.alpha = (
-            outline_highlight_alpha
-            if self.is_highlight
-            else outline_alpha
-        )
+        self.alpha = outline_highlight_alpha if self.is_highlight else outline_alpha
 
         previous_blend = gpu.state.blend_get()
         previous_line_width = gpu.state.line_width_get()
@@ -4053,10 +3479,7 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
         self.alpha = original_alpha
 
     def draw_select(self, _context, select_id):
-        self.draw_custom_shape(
-            self._fill_shape,
-            select_id=select_id,
-        )
+        self.draw_custom_shape(self._fill_shape, select_id=select_id)
 
 
 class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
@@ -4070,28 +3493,19 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
             return
 
         self._shape = self.new_custom_shape(
-            'TRIS',
-            _build_circle_fan_vertices(
-                radius=1.0,
-                segments=48,
-            ),
+            'TRIS', _build_circle_fan_vertices(radius=1.0, segments=48)
         )
 
     def draw(self, _context):
         self.draw_custom_shape(self._shape)
 
     def draw_select(self, _context, select_id):
-        self.draw_custom_shape(
-            self._shape,
-            select_id=select_id,
-        )
+        self.draw_custom_shape(self._shape, select_id=select_id)
 
     def test_select(self, context, location):
         """Return a hit inside the rotation disc, excluding the center dead zone."""
         center_2d = view3d_utils.location_3d_to_region_2d(
-            context.region,
-            context.region_data,
-            self.matrix_basis.translation,
+            context.region, context.region_data, self.matrix_basis.translation
         )
 
         if center_2d is None:
@@ -4100,21 +3514,14 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
         mouse = Vector(location)
         distance = (mouse - center_2d).length
 
-        gizmo_size = max(
-            context.preferences.view.gizmo_size,
-            1,
-        )
+        gizmo_size = max(context.preferences.view.gizmo_size, 1)
 
         outer_radius = (
             gizmo_size
             * ROTATE_VIEW_RING_PIXEL_RADIUS
             * FREE_ROTATE_DISC_SCALE_FACTOR
         )
-
-        deadzone_radius = (
-            gizmo_size
-            * FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR
-        )
+        deadzone_radius = gizmo_size * FREE_ROTATE_DISC_CENTER_DEADZONE_FACTOR
 
         if distance <= deadzone_radius:
             return -1
@@ -4136,12 +3543,7 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             return
 
         self._full_sector_shape = self.new_custom_shape(
-            'TRIS',
-            _build_sector_fan_vertices(
-                0.0,
-                math.tau,
-                ROTATE_SECTOR_STEPS,
-            ),
+            'TRIS', _build_sector_fan_vertices(0.0, math.tau, ROTATE_SECTOR_STEPS)
         )
 
     def draw(self, _context):
@@ -4161,14 +3563,8 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             else -(math.tau + remaining_angle)
         )
 
-        radius_color = getattr(
-            self,
-            "radius_color",
-            (1.0, 1.0, 1.0),
-        )
-        fill_alpha = float(
-            getattr(self, "fill_alpha", 0.25)
-        )
+        radius_color = getattr(self, "radius_color", (1.0, 1.0, 1.0))
+        fill_alpha = float(getattr(self, "fill_alpha", 0.25))
 
         original_color = self.color
         original_alpha = self.alpha
@@ -4180,7 +3576,7 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             background_end = background_start + background_angle
             background_shape = self.new_custom_shape(
                 'TRIS',
-                _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS),
+                _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS)
             )
             self.alpha = fill_alpha * rotation_count
             self.draw_custom_shape(background_shape)
@@ -4189,7 +3585,7 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             steps = max(12, int(ROTATE_SECTOR_STEPS * abs(remaining_angle) / math.tau))
             remainder_shape = self.new_custom_shape(
                 'TRIS',
-                _build_sector_fan_vertices(start_angle, start_angle + remaining_angle, steps),
+                _build_sector_fan_vertices(start_angle, start_angle + remaining_angle, steps)
             )
             self.alpha = fill_alpha * (rotation_count + 1)
             self.draw_custom_shape(remainder_shape)
@@ -4219,23 +3615,10 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
 
     def draw(self, context):
         """Draw the rotation axis line over the scene."""
-        line_width = float(
-            getattr(
-                self,
-                "line_width",
-                ROTATE_CONSTRAINT_LINE_WIDTH,
-            )
-        )
-        color = getattr(
-            self,
-            "axis_color",
-            (1.0, 1.0, 1.0, 1.0),
-        )
+        line_width = float(getattr(self, "line_width", ROTATE_CONSTRAINT_LINE_WIDTH))
+        color = getattr(self, "axis_color", (1.0, 1.0, 1.0, 1.0))
 
-        scaled_line_width = (
-            line_width
-            * context.preferences.system.pixel_size
-        )
+        scaled_line_width = line_width * context.preferences.system.pixel_size
 
         line_extent = 1.0e4
         vertices = [
@@ -4243,14 +3626,8 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
             (0.0, 0.0, line_extent),
         ]
 
-        shader = gpu.shader.from_builtin(
-            'POLYLINE_UNIFORM_COLOR'
-        )
-        batch = batch_for_shader(
-            shader,
-            'LINES',
-            {"pos": vertices},
-        )
+        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+        batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
 
         previous_blend = gpu.state.blend_get()
         previous_depth_test = gpu.state.depth_test_get()
@@ -4264,14 +3641,8 @@ class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
             gpu.matrix.multiply_matrix(self.matrix_world)
 
             shader.bind()
-            shader.uniform_float(
-                "viewportSize",
-                gpu.state.viewport_get()[2:],
-            )
-            shader.uniform_float(
-                "lineWidth",
-                scaled_line_width,
-            )
+            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+            shader.uniform_float("lineWidth", scaled_line_width)
             shader.uniform_float("color", color)
 
             batch.draw(shader)
@@ -4291,47 +3662,14 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
 
     def draw(self, context):
         """Draw snap ticks around the active rotation ring."""
-        start_angle = float(
-            getattr(self, "start_angle", 0.0)
-        )
-        snap_step = float(
-            getattr(
-                self,
-                "snap_step",
-                ROTATE_SNAP_STEP,
-            )
-        )
-        tick_offset = float(
-            getattr(
-                self,
-                "tick_offset",
-                ROTATE_TICK_OFFSET_LOCAL,
-            )
-        )
-        tick_length = float(
-            getattr(
-                self,
-                "tick_length",
-                ROTATE_TICK_LENGTH_LOCAL,
-            )
-        )
-        tick_width = float(
-            getattr(
-                self,
-                "tick_width",
-                ROTATE_TICK_WIDTH_PX,
-            )
-        )
-        tick_color = getattr(
-            self,
-            "tick_color",
-            ROTATE_TICK_COLOR,
-        )
+        start_angle = float(getattr(self, "start_angle", 0.0))
+        snap_step = float(getattr(self, "snap_step", ROTATE_SNAP_STEP))
+        tick_offset = float(getattr(self, "tick_offset", ROTATE_TICK_OFFSET_LOCAL))
+        tick_length = float(getattr(self, "tick_length", ROTATE_TICK_LENGTH_LOCAL))
+        tick_width = float(getattr(self, "tick_width", ROTATE_TICK_WIDTH_PX))
+        tick_color = getattr(self, "tick_color", ROTATE_TICK_COLOR)
 
-        scaled_tick_width = (
-            tick_width
-            * context.preferences.system.pixel_size
-        )
+        scaled_tick_width = tick_width * context.preferences.system.pixel_size
 
         vertices = []
         angle = start_angle
@@ -4361,14 +3699,8 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
         if not vertices:
             return
 
-        shader = gpu.shader.from_builtin(
-            'POLYLINE_UNIFORM_COLOR'
-        )
-        batch = batch_for_shader(
-            shader,
-            'LINES',
-            {"pos": vertices},
-        )
+        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+        batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
 
         previous_blend = gpu.state.blend_get()
         previous_depth_test = gpu.state.depth_test_get()
@@ -4382,18 +3714,9 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
             gpu.matrix.multiply_matrix(self.matrix_world)
 
             shader.bind()
-            shader.uniform_float(
-                "viewportSize",
-                gpu.state.viewport_get()[2:],
-            )
-            shader.uniform_float(
-                "lineWidth",
-                scaled_tick_width,
-            )
-            shader.uniform_float(
-                "color",
-                tick_color,
-            )
+            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+            shader.uniform_float("lineWidth", scaled_tick_width)
+            shader.uniform_float("color", tick_color)
 
             batch.draw(shader)
 
@@ -4427,27 +3750,20 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
         return (
             viewport_allows_gizmo(context)
-            and (
-                location_gizmo_enabled(context)
-                or rotation_gizmo_enabled(context)
-            )
+            and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
         )
 
     def setup(self, _context):
         """Create the gizmos and bind their operators."""
         def _new_plane_square(selectable):
-            gizmo = self.gizmos.new(
-                "CURSORTRANSFORM_GT_plane_square"
-            )
+            gizmo = self.gizmos.new("CURSORTRANSFORM_GT_plane_square")
             gizmo.use_tooltip = False
             gizmo.use_draw_offset_scale = True
             gizmo.hide_select = not selectable
             return gizmo
 
         def _new_filled_dot(selectable):
-            gizmo = self.gizmos.new(
-                "CURSORTRANSFORM_GT_filled_dot"
-            )
+            gizmo = self.gizmos.new("CURSORTRANSFORM_GT_filled_dot")
             gizmo.use_tooltip = False
             gizmo.hide_select = not selectable
             return gizmo
@@ -4479,9 +3795,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
                 (0.0, 0.0, 0.62)
             )
 
-            operator_properties = gizmo.target_set_operator(
-                "cursortransform.translate_gizmo_start"
-            )
+            operator_properties = gizmo.target_set_operator("cursortransform.translate_gizmo_start")
             operator_properties.axis = axis
             operator_properties.plane = ""
 
@@ -4492,9 +3806,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         for plane in ("XY", "XZ", "YZ"):
             gizmo = _new_plane_square(selectable=True)
 
-            operator_properties = gizmo.target_set_operator(
-                "cursortransform.translate_gizmo_start"
-            )
+            operator_properties = gizmo.target_set_operator("cursortransform.translate_gizmo_start")
             operator_properties.axis = ""
             operator_properties.plane = plane
 
@@ -4504,25 +3816,17 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
         # Non-interactive copies show the starting plane during translation.
         for plane in ("XY", "XZ", "YZ"):
-            self.ghost_move_planes[plane] = (
-                _new_plane_square(selectable=False)
-            )
+            self.ghost_move_planes[plane] = _new_plane_square(selectable=False)
 
-        self.ghost_move_arrow = self.gizmos.new(
-            "GIZMO_GT_arrow_3d"
-        )
+        self.ghost_move_arrow = self.gizmos.new("GIZMO_GT_arrow_3d")
         self.ghost_move_arrow.use_tooltip = False
         self.ghost_move_arrow.hide_select = True
         self.ghost_move_arrow.line_width = 2
         self.ghost_move_arrow.use_draw_offset_scale = True
 
-        self.ghost_center_dot = _new_filled_dot(
-            selectable=False
-        )
+        self.ghost_center_dot = _new_filled_dot(selectable=False)
 
-        self.ghost_move_center = self.gizmos.new(
-            "GIZMO_GT_move_3d"
-        )
+        self.ghost_move_center = self.gizmos.new("GIZMO_GT_move_3d")
         self.ghost_move_center.use_tooltip = False
         self.ghost_move_center.hide_select = True
         self.ghost_move_center.line_width = 2
@@ -4534,23 +3838,15 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         self.axis_center_dots = {}
 
         for axis in ("X", "Y", "Z"):
-            self.axis_center_dots[axis] = (
-                _new_filled_dot(selectable=False)
-            )
+            self.axis_center_dots[axis] = _new_filled_dot(selectable=False)
 
         # The free-rotation disc must be created before the move center so
         # the move center takes precedence in their overlapping hit area.
-        self.rotate_free_disc = self.gizmos.new(
-            "CURSORTRANSFORM_GT_rotate_free_disc"
-        )
+        self.rotate_free_disc = self.gizmos.new("CURSORTRANSFORM_GT_rotate_free_disc")
         self.rotate_free_disc.use_tooltip = False
-        self.rotate_free_disc.target_set_operator(
-            "cursortransform.rotate_free_modal"
-        )
+        self.rotate_free_disc.target_set_operator("cursortransform.rotate_free_modal")
 
-        self.move_center = self.gizmos.new(
-            "GIZMO_GT_move_3d"
-        )
+        self.move_center = self.gizmos.new("GIZMO_GT_move_3d")
         self.move_center.use_tooltip = False
         self.move_center.line_width = 2
         self.move_center.draw_options = {
@@ -4565,9 +3861,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
         # Blender draws gizmos in reverse registration order. Preserve this
         # order so ticks appear above rings, sectors, and axis lines.
-        self.rotate_ticks = self.gizmos.new(
-            "CURSORTRANSFORM_GT_rotate_ticks"
-        )
+        self.rotate_ticks = self.gizmos.new("CURSORTRANSFORM_GT_rotate_ticks")
         self.rotate_ticks.use_tooltip = False
         self.rotate_ticks.hide_select = True
 
@@ -4580,25 +3874,17 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         self.rotate_rings = {}
 
         for axis in ("X", "Y", "Z"):
-            self.rotate_rings[axis] = _new_rotate_ring(
-                rotate_operators[axis]
-            )
+            self.rotate_rings[axis] = _new_rotate_ring(rotate_operators[axis])
 
-        self.view_ring = self.gizmos.new(
-            "GIZMO_GT_dial_3d"
-        )
+        self.view_ring = self.gizmos.new("GIZMO_GT_dial_3d")
         self.view_ring.use_tooltip = False
         self.view_ring.line_width = 2
         self.view_ring.alpha = AXIS_IDLE_ALPHA
         self.view_ring.alpha_highlight = AXIS_ACTIVE_ALPHA
-        self.view_ring.target_set_operator(
-            "cursortransform.rotate_view"
-        )
+        self.view_ring.target_set_operator("cursortransform.rotate_view")
 
         # Register the sector after the rings so it is drawn beneath them.
-        self.rotate_sector = self.gizmos.new(
-            "CURSORTRANSFORM_GT_rotate_sector"
-        )
+        self.rotate_sector = self.gizmos.new("CURSORTRANSFORM_GT_rotate_sector")
         self.rotate_sector.use_tooltip = False
         self.rotate_sector.hide_select = True
 
@@ -4606,9 +3892,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         self.axis_lines = {}
 
         for axis in ("X", "Y", "Z"):
-            gizmo = self.gizmos.new(
-                "CURSORTRANSFORM_GT_axis_line"
-            )
+            gizmo = self.gizmos.new("CURSORTRANSFORM_GT_axis_line")
             gizmo.use_tooltip = False
             gizmo.hide_select = True
 
