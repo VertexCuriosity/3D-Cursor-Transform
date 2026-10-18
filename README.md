@@ -51,7 +51,7 @@ If you're already familiar with transforming objects, you'll feel right at home 
 
 ### Transform the 3D Cursor
 
-Select the **3D Cursor** tool and press **G** to move or **R** to rotate the 3D Cursor.
+With the **3D Cursor** tool active, press **G** to move or **R** to rotate the 3D Cursor.
 
 Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R** to reset its rotation.
 
@@ -59,7 +59,7 @@ Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R
 
 ### Constraints
 
-Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to cycle through the available transform orientations, or use **Shift + X**, **Y**, and **Z** for plane constraints.
+Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to switch between **Global** and **Local** orientations, or use **Shift + X**, **Y**, and **Z** for plane constraints.
 
 ![3D Cursor transform orientation switching](screenshots/orientation-switch.png)
 
