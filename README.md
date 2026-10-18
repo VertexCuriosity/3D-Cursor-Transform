@@ -1,4 +1,7 @@
-![3D Cursor Transform](screenshots/thumbnail.png)
+[![Watch the 3D Cursor Transform tutorial](screenshots/thumbnail.png)](https://youtu.be/btT_od7eQNs)
+
+[▶ Watch the full tutorial on YouTube](https://youtu.be/btT_od7eQNs)
+
 # 3D Cursor Transform
 
 Bring Blender's full transform system to the 3D Cursor.
