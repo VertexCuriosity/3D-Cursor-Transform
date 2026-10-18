@@ -45,7 +45,9 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 
 ## Usage
 
-3D Cursor Transform is designed to work exactly like Blender's native transform system. If you're already familiar with transforming objects, you'll feel right at home using the same shortcuts and controls with the 3D Cursor.
+3D Cursor Transform is designed to work exactly like Blender's native transform system. Simply select the **3D Cursor tool** to access the add-on's transform features.
+
+If you're already familiar with transforming objects, you'll feel right at home using the same shortcuts and controls with the 3D Cursor.
 
 ### Transform the 3D Cursor
 
