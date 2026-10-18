@@ -57,13 +57,13 @@ Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R
 
 ![3D Cursor rotation](screenshots/rotate.png)
 
-### Constraints
+### Constraint the 3D Cursor
 
 Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to switch between **Global** and **Local** orientations, or use **Shift + X**, **Y**, and **Z** for plane constraints.
 
 ![3D Cursor transform orientation switching](screenshots/orientation-switch.png)
 
-### Mouse Axis Selection
+### MMB Axis Selection
 
 During a transformation, press **MMB** to pick an axis directly from the viewport.
 
