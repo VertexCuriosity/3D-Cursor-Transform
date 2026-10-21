@@ -83,7 +83,7 @@ Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo*
 During a transform, use the **Arrow keys** to make small adjustments, enter numeric values for precise transformations, or hold **Shift** for precision mode. Use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
 ![3D Cursor snapping](screenshots/snapping.png)
 
-For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/apps/3d-cursor-transform) website.
+For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/blender-addons/3d-cursor-transform) website.
 
 ## Limitations
 
