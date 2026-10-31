@@ -11,6 +11,7 @@ import math
 
 import bpy
 import gpu
+import numpy as np
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Quaternion, Vector
@@ -153,6 +154,21 @@ ROTATE_VIEW_TICK_OFFSET_LOCAL = 0.10
 ROTATE_VIEW_TICK_LENGTH_LOCAL = 0.10
 ROTATE_VIEW_TICK_WIDTH_PX = 1.0
 
+# Modes where the global controls can tell selected from unselected elements.
+GLOBAL_CURSOR_MODES = frozenset({
+    'OBJECT',
+    'POSE',
+    'EDIT_MESH',
+    'EDIT_CURVE',
+    'EDIT_SURFACE',
+    'EDIT_ARMATURE',
+    'EDIT_LATTICE',
+    'EDIT_METABALL',
+    'EDIT_CURVES',
+    'EDIT_POINTCLOUD',
+    'EDIT_GREASE_PENCIL',
+})
+
 
 # ── Runtime state ────────────────────────────────────────────────────────────
 
@@ -215,7 +231,30 @@ def cursor_transform_context_valid(context):
         and context.region is not None
         and context.region.type == 'WINDOW'
         and context.region_data is not None
-        and active_tool_is_cursor(context)
+        and cursor_controls_available(context)
+    )
+
+
+def cursor_controls_available(context):
+    """Return whether the cursor operators may run: Cursor tool, or global shortcuts."""
+    return active_tool_is_cursor(context) or global_shortcuts_available(context)
+
+
+def addon_preferences(context):
+    """Return the add-on preferences, or None when the add-on is not enabled."""
+    addon = context.preferences.addons.get(__package__)
+    return addon.preferences if addon is not None else None
+
+
+def global_shortcuts_available(context):
+    """Return whether the global shortcuts may transform the cursor in this context."""
+    preferences = addon_preferences(context)
+
+    return (
+        preferences is not None
+        and preferences.use_global_shortcuts
+        and context.mode in GLOBAL_CURSOR_MODES
+        and not has_relevant_selection(context)
     )
 
 
@@ -276,6 +315,137 @@ def native_rotate_modal_running(context):
         context,
         _NATIVE_ROTATE_IDNAMES,
     )
+
+
+# ── Selection detection ──────────────────────────────────────────────────────
+
+
+def _any_flag_set(collection, property_name):
+    """Return whether any item in a collection has a boolean property set."""
+    count = len(collection)
+
+    if count == 0:
+        return False
+
+    values = np.empty(count, dtype=bool)
+    collection.foreach_get(property_name, values)
+    return bool(values.any())
+
+
+def _geometry_has_selection(attributes):
+    """Return whether Curves, Point Cloud or Grease Pencil geometry has selected elements."""
+    position = attributes.get("position")
+
+    if position is None or len(position.data) == 0:
+        return False
+
+    selection = attributes.get(".selection")
+
+    # Without a .selection attribute, Blender treats every element as selected.
+    if selection is None:
+        return True
+
+    # TODO: Revisit this if Blender introduces other selection attribute types.
+    # Currently, .selection attributes are expected to be BOOLEAN or FLOAT.
+    dtype = bool if selection.data_type == 'BOOLEAN' else np.float32
+    values = np.empty(len(selection.data), dtype=dtype)
+    selection.data.foreach_get("value", values)
+    return bool(values.any())
+
+
+def _grease_pencil_layer_editable(layer):
+    """Return whether a Grease Pencil layer and its parent groups are all visible and unlocked."""
+    item = layer
+
+    while item is not None:
+        if item.hide or item.lock:
+            return False
+
+        item = item.parent_group
+
+    return True
+
+
+def _grease_pencil_has_selection(obj, context):
+    """Return whether editable Grease Pencil drawings contain selected elements."""
+    multi_frame = context.scene.tool_settings.use_grease_pencil_multi_frame_editing
+
+    for layer in obj.data.layers:
+        if not _grease_pencil_layer_editable(layer):
+            continue
+
+        frames = [layer.current_frame()]
+
+        if multi_frame:
+            frames.extend(frame for frame in layer.frames if frame.select)
+
+        for frame in frames:
+            if frame is not None and frame.drawing is not None:
+                if _geometry_has_selection(frame.drawing.attributes):
+                    return True
+
+    return False
+
+
+def _edit_object_has_selection(obj, context):
+    """Return whether an object in Edit Mode has selected elements."""
+    data = obj.data
+
+    if obj.type == 'MESH':
+        return data.total_vert_sel > 0
+
+    if obj.type in {'CURVE', 'SURFACE'}:
+        return any(
+            _any_flag_set(spline.bezier_points, "select_control_point")
+            or _any_flag_set(spline.bezier_points, "select_left_handle")
+            or _any_flag_set(spline.bezier_points, "select_right_handle")
+            or _any_flag_set(spline.points, "select")
+            for spline in data.splines
+        )
+
+    if obj.type == 'LATTICE':
+        return _any_flag_set(data.points, "select")
+
+    # Native transform also moves hidden metaball elements while they are selected.
+    if obj.type == 'META':
+        return _any_flag_set(data.elements, "select")
+
+    if obj.type in {'CURVES', 'POINTCLOUD'}:
+        return _geometry_has_selection(data.attributes)
+
+    if obj.type == 'GREASEPENCIL':
+        return _grease_pencil_has_selection(obj, context)
+
+    # Unknown object types keep Blender's native shortcuts in control.
+    return True
+
+
+def has_relevant_selection(context):
+    """Check whether the current selection should prevent global cursor transforms."""
+    mode = context.mode
+
+    if mode == 'OBJECT':
+        return bool(context.selected_objects)
+
+    if mode == 'POSE':
+        return bool(context.selected_pose_bones)
+
+    # Matches native transform: visible, unlocked bones with the body or a joint selected.
+    if mode == 'EDIT_ARMATURE':
+        return any(
+            (bone.select or bone.select_head or bone.select_tail) and not bone.lock
+            for bone in (context.visible_bones or ())
+        )
+
+    if mode in GLOBAL_CURSOR_MODES:
+        return any(
+            _edit_object_has_selection(obj, context)
+            for obj in context.objects_in_mode_unique_data
+        )
+
+    # Unsupported modes count as having a relevant selection, so Blender's
+    # native shortcuts remain in control.
+    return True
 
 
 # ── Orientation helpers ──────────────────────────────────────────────────────
@@ -2393,8 +2563,8 @@ class CURSORTRANSFORM_OT_clear_transform(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """Run only while the 3D Cursor tool is active."""
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global shortcuts are available."""
+        return cursor_controls_available(context)
 
     def execute(self, context):
         cursor = context.scene.cursor
@@ -3215,8 +3385,8 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """Run only while the 3D Cursor tool is active."""
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global shortcuts are available."""
+        return cursor_controls_available(context)
 
     def invoke(self, context, _event):
         """Start Blender's native cursor translation on one axis."""
@@ -3282,8 +3452,8 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """Run only while the 3D Cursor tool is active."""
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global shortcuts are available."""
+        return cursor_controls_available(context)
 
     def invoke(self, context, _event):
         """Start Blender's native free cursor translation."""
@@ -3315,8 +3485,8 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """Run only while the 3D Cursor tool is active."""
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global shortcuts are available."""
+        return cursor_controls_available(context)
 
     def invoke(self, context, _event):
         """Start Blender's native cursor translation on a plane."""
@@ -3402,10 +3572,59 @@ class CURSORTRANSFORM_OT_rotate_view(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global shortcuts are available."""
+        return cursor_controls_available(context)
 
     def invoke(self, context, _event):
         return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="VIEW")
+
+
+class CURSORTRANSFORM_OT_global_shortcut(bpy.types.Operator):
+    """Transform the 3D Cursor with the Cursor tool's shortcuts when nothing is selected."""
+
+    bl_idname = "cursortransform.global_shortcut"
+    bl_label = "Global 3D Cursor Shortcut"
+    # No UNDO or REGISTER: the delegated operator pushes its own undo step and redo panel.
+    bl_options = {'INTERNAL'}
+
+    action: bpy.props.EnumProperty(
+        items=(
+            ('TRANSLATE', "Translate", "Move the 3D Cursor"),
+            ('ROTATE', "Rotate", "Rotate the 3D Cursor"),
+            ('CLEAR_LOCATION', "Clear Location", "Reset the 3D Cursor location"),
+            ('CLEAR_ROTATION', "Clear Rotation", "Reset the 3D Cursor rotation"),
+        ),
+        default='TRANSLATE',
+        options={'HIDDEN', 'SKIP_SAVE'},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        """Run only when the global shortcuts are available in a 3D View."""
+        return (
+            context.area is not None
+            and context.area.type == 'VIEW_3D'
+            and context.region is not None
+            and context.region.type == 'WINDOW'
+            and context.region_data is not None
+            and global_shortcuts_available(context)
+        )
+
+    def invoke(self, _context, _event):
+        """Start the same operator the Cursor tool's shortcut would start."""
+        if self.action == 'TRANSLATE':
+            result = bpy.ops.cursortransform.translate_modal(
+                'INVOKE_DEFAULT',
+                release_confirm=False,
+            )
+        elif self.action == 'ROTATE':
+            result = bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
+        elif self.action == 'CLEAR_LOCATION':
+            result = bpy.ops.cursortransform.clear_transform('INVOKE_DEFAULT', mode='LOCATION')
+        else:
+            result = bpy.ops.cursortransform.clear_transform('INVOKE_DEFAULT', mode='ROTATION')
+
+        return {'FINISHED'} if result & {'FINISHED', 'RUNNING_MODAL'} else {'CANCELLED'}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4385,16 +4604,16 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 # Add-on Preferences
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _independent_controls_update(preferences, _context):
+def _global_controls_update(preferences, _context):
     """Enable both controls on first activation; allow independent toggling afterwards."""
-    if preferences.independent_controls_initialized:
+    if preferences.global_controls_initialized:
         return
 
     if not (preferences.use_global_shortcuts or preferences.use_global_gizmos):
         return
 
     # Set the flag first so the nested updates triggered below return early.
-    preferences.independent_controls_initialized = True
+    preferences.global_controls_initialized = True
     preferences.use_global_shortcuts = True
     preferences.use_global_gizmos = True
 
@@ -4411,7 +4630,7 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
             "3D Cursor tool when nothing else is selected"
         ),
         default=False,
-        update=_independent_controls_update,
+        update=_global_controls_update,
     )
 
     use_global_gizmos: bpy.props.BoolProperty(
@@ -4422,10 +4641,10 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
             "Move and Rotate must be enabled to display their respective gizmos"
         ),
         default=False,
-        update=_independent_controls_update,
+        update=_global_controls_update,
     )
 
-    independent_controls_initialized: bpy.props.BoolProperty(
+    global_controls_initialized: bpy.props.BoolProperty(
         default=False,
         options={'HIDDEN'},
     )
@@ -4467,6 +4686,7 @@ classes = (
     CURSORTRANSFORM_OT_rotate_y,
     CURSORTRANSFORM_OT_rotate_z,
     CURSORTRANSFORM_OT_rotate_view,
+    CURSORTRANSFORM_OT_global_shortcut,
     CURSORTRANSFORM_GT_filled_dot,
     CURSORTRANSFORM_GT_plane_square,
     CURSORTRANSFORM_GT_rotate_free_disc,
@@ -4528,6 +4748,56 @@ def _register_keymaps():
     _addon_keymaps.append((keymap, keymap_item))
 
 
+# Mode keymaps that handle G and R natively. Add-on items are merged ahead of
+# Blender's items, and a failing poll() passes the key on to the native item.
+# The Cursor tool's keymap is checked before every mode keymap, so these items
+# never change the Cursor tool's behavior.
+GLOBAL_SHORTCUT_KEYMAPS = (
+    "Object Mode",
+    "Pose",
+    "Mesh",
+    "Curve",
+    "Armature",
+    "Lattice",
+    "Metaball",
+    "Curves",
+    "Point Cloud",
+    "Grease Pencil Edit Mode",
+)
+
+GLOBAL_SHORTCUT_ITEMS = (
+    ('G', False, 'TRANSLATE'),
+    ('R', False, 'ROTATE'),
+    ('G', True, 'CLEAR_LOCATION'),
+    ('R', True, 'CLEAR_ROTATION'),
+)
+
+
+def _register_global_keymaps():
+    """Register the global 3D Cursor shortcuts in the mode keymaps."""
+    keyconfig = bpy.context.window_manager.keyconfigs.addon
+
+    if keyconfig is None:
+        return
+
+    for keymap_name in GLOBAL_SHORTCUT_KEYMAPS:
+        keymap = keyconfig.keymaps.new(
+            name=keymap_name,
+            space_type='EMPTY',
+            region_type='WINDOW',
+        )
+
+        for key, alt, action in GLOBAL_SHORTCUT_ITEMS:
+            keymap_item = keymap.keymap_items.new(
+                idname="cursortransform.global_shortcut",
+                type=key,
+                value='PRESS',
+                alt=alt,
+            )
+            keymap_item.properties.action = action
+            _addon_keymaps.append((keymap, keymap_item))
+
+
 def _unregister_keymaps():
     """Remove the add-on's registered shortcuts."""
     for keymap, keymap_item in _addon_keymaps:
@@ -4560,6 +4830,7 @@ def register():
     )
 
     _register_keymaps()
+    _register_global_keymaps()
 
 
 def unregister():
