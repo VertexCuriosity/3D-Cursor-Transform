@@ -4382,6 +4382,74 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Add-on Preferences
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _independent_controls_update(preferences, _context):
+    """Enable both controls on first activation; allow independent toggling afterwards."""
+    if preferences.independent_controls_initialized:
+        return
+
+    if not (preferences.use_global_shortcuts or preferences.use_global_gizmos):
+        return
+
+    # Set the flag first so the nested updates triggered below return early.
+    preferences.independent_controls_initialized = True
+    preferences.use_global_shortcuts = True
+    preferences.use_global_gizmos = True
+
+
+class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
+    """Preferences for using the 3D Cursor controls outside the Cursor tool."""
+
+    bl_idname = __package__
+
+    use_global_shortcuts: bpy.props.BoolProperty(
+        name="Enable Shortcuts",
+        description=(
+            "Use G, R, Alt+G and Alt+R on the 3D Cursor without activating the "
+            "3D Cursor tool when nothing else is selected"
+        ),
+        default=False,
+        update=_independent_controls_update,
+    )
+
+    use_global_gizmos: bpy.props.BoolProperty(
+        name="Enable Gizmos",
+        description=(
+            "Show the 3D Cursor transform gizmos without activating the Cursor tool "
+            "when nothing else is selected. Follows Blender's viewport Gizmos settings: "
+            "Move and Rotate must be enabled to display their respective gizmos"
+        ),
+        default=False,
+        update=_independent_controls_update,
+    )
+
+    independent_controls_initialized: bpy.props.BoolProperty(
+        default=False,
+        options={'HIDDEN'},
+    )
+
+    def draw(self, _context):
+        layout = self.layout
+
+        box = layout.box()
+        column = box.column(align=True)
+
+        column.label(text="Global 3D Cursor Transform", icon='ORIENTATION_CURSOR')
+        column.separator(type='LINE')
+
+        column.label(
+            text="Transform the 3D Cursor without activating the Cursor tool when nothing else is selected."
+        )
+
+        column.separator(factor=0.5)
+
+        column.prop(self, "use_global_shortcuts")
+        column.prop(self, "use_global_gizmos")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Keymaps and Registration
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -4406,6 +4474,7 @@ classes = (
     CURSORTRANSFORM_GT_axis_line,
     CURSORTRANSFORM_GT_rotate_ticks,
     CURSORTRANSFORM_GGT_main,
+    CURSORTRANSFORM_AddonPreferences,
 )
 
 
