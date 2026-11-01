@@ -2029,7 +2029,17 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
         _ROTATE_PREVIOUS_AXIS = previous_axis
 
-        bpy.ops.cursortransform.rotate_free_modal('INVOKE_DEFAULT')
+        started = False
+
+        try:
+            result = bpy.ops.cursortransform.rotate_free_modal('INVOKE_DEFAULT')
+            started = 'RUNNING_MODAL' in result
+        finally:
+            # Clear the temporary handoff data so future trackball operations cannot reuse it.
+            _ROTATE_TRACKBALL_HANDOFF = None
+
+            if not started:
+                _ROTATE_PREVIOUS_AXIS = None
 
     def _enter_mmb_pickup(self, context, event):
         """Begin automatic axis selection with the middle mouse button."""
