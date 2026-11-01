@@ -2212,12 +2212,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
-            self._remove_guide_handler()
-            cleanup_rotation_modal(context)
+            self.cancel(context)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        """Restore the cursor rotation and clean up when the rotation is cancelled."""
+        restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
+        self._remove_guide_handler()
+        cleanup_rotation_modal(context)
 
 
 class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
@@ -2474,13 +2478,17 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
-            self._remove_cursor_handler()
-            cleanup_rotation_modal(context)
-            _ROTATE_DRAW_STATE.active_view = None
+            self.cancel(context)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        """Restore the cursor rotation and clean up when the trackball rotation is cancelled."""
+        restore_cursor_rotation(context.scene.cursor, self._rot_mode, self._start_rot)
+        self._remove_cursor_handler()
+        cleanup_rotation_modal(context)
+        _ROTATE_DRAW_STATE.active_view = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3193,7 +3201,9 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         _TRANSLATE_GHOST_START_ORIENT = None
         _TRANSLATE_ACTIVE_ORIENT = None
 
-        context.window.cursor_modal_restore()
+        if context.window is not None:
+            context.window.cursor_modal_restore()
+
         context.window_manager.cursortransform_active_translate_axis = ""
 
         if context.area is not None:
@@ -3311,11 +3321,15 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             return {'FINISHED'}
 
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            context.scene.cursor.location = self._initial_loc
-            self._finish(context)
+            self.cancel(context)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        """Restore the cursor location and clean up when the translation is cancelled."""
+        context.scene.cursor.location = self._initial_loc
+        self._finish(context)
 
 
 class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
