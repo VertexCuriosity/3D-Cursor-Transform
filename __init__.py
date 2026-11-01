@@ -199,6 +199,9 @@ _ROTATE_TRACKBALL_HANDOFF = None
 # Previous constraint restored when leaving trackball rotation
 _ROTATE_PREVIOUS_AXIS = None
 
+# Region of the 3D View running the current cursor transform
+_TRANSFORM_REGION_POINTER = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -288,14 +291,15 @@ def rotation_gizmo_enabled(context):
 
 
 def modal_operator_running(context, operator_idnames):
-    """Return whether one of the given modal operators is active."""
-    window = getattr(context, "window", None)
+    """Return whether one of the given modal operators is active in any window."""
+    window_manager = getattr(context, "window_manager", None)
 
-    if window is None:
+    if window_manager is None:
         return False
 
     return any(
         getattr(operator, "bl_idname", "") in operator_idnames
+        for window in window_manager.windows
         for operator in getattr(window, "modal_operators", ())
     )
 
@@ -593,6 +597,29 @@ def tag_viewport_redraw(context):
         context.area.tag_redraw()
 
 
+def tag_all_viewports_redraw(context):
+    """Redraw every 3D View so other viewports hide or restore their cursor gizmos."""
+    for window in context.window_manager.windows:
+        screen = window.screen
+
+        if screen is None:
+            continue
+
+        for area in screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+
+def set_transform_region(context):
+    """Show transform feedback only in the active region and redraw every 3D View."""
+    global _TRANSFORM_REGION_POINTER
+
+    region = context.region
+    _TRANSFORM_REGION_POINTER = region.as_pointer() if region is not None else None
+
+    tag_all_viewports_redraw(context)
+
+
 def cleanup_rotation_modal(context):
     """Clear shared rotation state and restore the viewport UI."""
     global _ROTATE_PREVIOUS_AXIS
@@ -611,6 +638,7 @@ def cleanup_rotation_modal(context):
         context.workspace.status_text_set(None)
 
     tag_viewport_redraw(context)
+    tag_all_viewports_redraw(context)
 
 
 def parse_numeric_input(numeric_input):
@@ -1260,8 +1288,14 @@ def _draw_rotate_constraint_lines(operator, region_pointer):
 # ── Rotation guide drawing ───────────────────────────────────────────────────
 
 
-def _rotate_guide_draw_op(operator):
+def _rotate_guide_draw_op(operator, region_pointer):
     """Draw the screen-space guide for the active rotation modal."""
+    region = bpy.context.region
+
+    # Draw only in the 3D View running the rotation.
+    if region is None or region.as_pointer() != region_pointer:
+        return
+
     center = operator._guide_center_2d
     mouse = operator._guide_mouse_2d
 
@@ -1381,9 +1415,15 @@ def _draw_rotation_cursor(operator):
         gpu.state.blend_set(previous_blend)
 
 
-def _draw_trackball_cursor(operator):
+def _draw_trackball_cursor(operator, region_pointer):
     """Draw Blender-style trackball helper arrows at the mouse position."""
     context = bpy.context
+    region = context.region
+
+    # Draw only in the 3D View running the rotation.
+    if region is None or region.as_pointer() != region_pointer:
+        return
+
     mouse = operator._cursor_mouse_2d
 
     if mouse is None:
@@ -1848,8 +1888,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         _ROTATE_DRAW_STATE.start_angle = self._guide_start_angle
         _ROTATE_DRAW_STATE.total_angle = 0.0
 
+        set_transform_region(context)
+
         self._guide_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _rotate_guide_draw_op, (self,), 'WINDOW', 'POST_PIXEL'
+            _rotate_guide_draw_op, (self, context.region.as_pointer()), 'WINDOW', 'POST_PIXEL'
         )
         self._constraint_line_handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_rotate_constraint_lines,
@@ -2278,8 +2320,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             event.mouse_region_y,
         ))
 
+        set_transform_region(context)
+
         self._cursor_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _draw_trackball_cursor, (self,), 'WINDOW', 'POST_PIXEL'
+            _draw_trackball_cursor, (self, context.region.as_pointer()), 'WINDOW', 'POST_PIXEL'
         )
 
         context.window.cursor_modal_set('NONE')
@@ -2602,6 +2646,8 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             _TRANSLATE_ACTIVE_ORIENT = self._get_active_orient().copy()
         else:
             window_manager.cursortransform_active_translate_axis = ""
+
+        set_transform_region(context)
 
         self._constraint_line_handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_translate_constraint_lines,
@@ -3213,6 +3259,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             context.workspace.status_text_set(None)
 
         tag_viewport_redraw(context)
+        tag_all_viewports_redraw(context)
 
     def modal(self, context, event):
         """Update cursor translation and handle modal input."""
@@ -3367,6 +3414,8 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
         _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
         _TRANSLATE_GHOST_START_ORIENT = orientation_matrix.copy()
 
+        set_transform_region(context)
+
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT',
             cursor_transform=True,
@@ -3425,6 +3474,8 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
         _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
         _TRANSLATE_GHOST_START_ORIENT = None
 
+        set_transform_region(context)
+
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT', cursor_transform=True, release_confirm=self.release_confirm
         )
@@ -3464,6 +3515,8 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
 
         _TRANSLATE_GHOST_START_LOC = context.scene.cursor.location.copy()
         _TRANSLATE_GHOST_START_ORIENT = orientation_matrix.copy()
+
+        set_transform_region(context)
 
         bpy.ops.transform.translate(
             'INVOKE_DEFAULT',
@@ -4161,6 +4214,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
         global _TRANSLATE_ACTIVE_ORIENT
+        global _TRANSFORM_REGION_POINTER
 
         cursor_location = context.scene.cursor.location
 
@@ -4212,6 +4266,19 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         if not translate_running:
             _TRANSLATE_GHOST_START_LOC = None
             _TRANSLATE_GHOST_START_ORIENT = None
+
+        transform_running = translate_running or rotate_running
+
+        # Hide gizmos in all other viewports during a transformation.
+        if transform_running:
+            region = context.region
+
+            if region is None or region.as_pointer() != _TRANSFORM_REGION_POINTER:
+                for gizmo in self.gizmos:
+                    gizmo.hide = True
+                return
+        else:
+            _TRANSFORM_REGION_POINTER = None
 
         rotate_basis = orientation
         rotate_view_basis = view_matrix
