@@ -970,18 +970,20 @@ def _draw_dashed_line_2d(start, end, color, dash_length, gap_length, line_width)
     )
 
     previous_blend = gpu.state.blend_get()
-    gpu.state.blend_set('ALPHA')
 
-    shader.bind()
-    shader.uniform_float(
-        "viewportSize",
-        gpu.state.viewport_get()[2:],
-    )
-    shader.uniform_float("lineWidth", width_pixels)
-    shader.uniform_float("color", color)
-    batch.draw(shader)
+    try:
+        gpu.state.blend_set('ALPHA')
 
-    gpu.state.blend_set(previous_blend)
+        shader.bind()
+        shader.uniform_float(
+            "viewportSize",
+            gpu.state.viewport_get()[2:],
+        )
+        shader.uniform_float("lineWidth", width_pixels)
+        shader.uniform_float("color", color)
+        batch.draw(shader)
+    finally:
+        gpu.state.blend_set(previous_blend)
 
 
 # ── 2D ring and rotation math ────────────────────────────────────────────────
@@ -1012,11 +1014,6 @@ def _solve_2d_basis(vector, basis_x, basis_y):
     ) / determinant
 
     return coefficient_x, coefficient_y
-
-
-def _wrap_pi(angle):
-    """Wrap an angle to the range from -π to π."""
-    return (angle + math.pi) % math.tau - math.pi
 
 
 def _screen_angle_delta(center, previous_mouse, current_mouse):
@@ -1210,11 +1207,11 @@ def _draw_constraint_lines(region_pointer, center, orient, active_axes, show_can
     previous_depth_test = gpu.state.depth_test_get()
     previous_depth_mask = gpu.state.depth_mask_get()
 
-    gpu.state.blend_set('ALPHA')
-    gpu.state.depth_test_set('NONE')
-    gpu.state.depth_mask_set(False)
-
     try:
+        gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('NONE')
+        gpu.state.depth_mask_set(False)
+
         shader.bind()
         shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
         shader.uniform_float("lineWidth", CONSTRAINT_LINE_WIDTH * context.preferences.system.pixel_size)
@@ -1360,26 +1357,28 @@ def _draw_rotation_cursor(operator):
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
     previous_blend = gpu.state.blend_get()
-    gpu.state.blend_set('ALPHA')
 
-    shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+    try:
+        gpu.state.blend_set('ALPHA')
 
-    vertices = arrow_vertices("DOWN") + arrow_vertices("UP")
+        shader.bind()
+        shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
 
-    batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
+        vertices = arrow_vertices("DOWN") + arrow_vertices("UP")
 
-    # Blender draws a wider dark background pass first.
-    shader.uniform_float("lineWidth", arrow_width * 2.0)
-    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
-    batch.draw(shader)
+        batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
 
-    # Then the white foreground arrows.
-    shader.uniform_float("lineWidth", arrow_width)
-    shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
-    batch.draw(shader)
+        # Blender draws a wider dark background pass first.
+        shader.uniform_float("lineWidth", arrow_width * 2.0)
+        shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
+        batch.draw(shader)
 
-    gpu.state.blend_set(previous_blend)
+        # Then the white foreground arrows.
+        shader.uniform_float("lineWidth", arrow_width)
+        shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
+        batch.draw(shader)
+    finally:
+        gpu.state.blend_set(previous_blend)
 
 
 def _draw_trackball_cursor(operator):
@@ -1455,61 +1454,63 @@ def _draw_trackball_cursor(operator):
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
     previous_blend = gpu.state.blend_get()
-    gpu.state.blend_set('ALPHA')
 
-    shader.bind()
-    shader.uniform_float(
-        "viewportSize",
-        gpu.state.viewport_get()[2:],
-    )
+    try:
+        gpu.state.blend_set('ALPHA')
 
-    # Match Blender's wider background pass, offset by one pixel.
-    background_offset = Vector((pixel_size, -pixel_size))
-    background_vertices = []
-
-    for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
-        background_vertices.extend(
-            Vector(vertex) + background_offset
-            for vertex in arrow_vertices(direction)
+        shader.bind()
+        shader.uniform_float(
+            "viewportSize",
+            gpu.state.viewport_get()[2:],
         )
 
-    background_batch = batch_for_shader(shader, 'LINES', {"pos": background_vertices})
+        # Match Blender's wider background pass, offset by one pixel.
+        background_offset = Vector((pixel_size, -pixel_size))
+        background_vertices = []
 
-    shader.uniform_float("lineWidth", arrow_width * 2.0)
-    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
-    background_batch.draw(shader)
+        for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
+            background_vertices.extend(
+                Vector(vertex) + background_offset
+                for vertex in arrow_vertices(direction)
+            )
 
-    # Blender derives the axis colors from the grid and axis theme colors.
-    theme = context.preferences.themes[0]
-    view_3d = theme.view_3d
-    user_interface = theme.user_interface
+        background_batch = batch_for_shader(shader, 'LINES', {"pos": background_vertices})
 
-    grid = Vector(view_3d.grid[:3])
+        shader.uniform_float("lineWidth", arrow_width * 2.0)
+        shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
+        background_batch.draw(shader)
 
-    def axis_color(axis):
-        axis_theme = Vector({
-            "X": user_interface.axis_x[:3],
-            "Y": user_interface.axis_y[:3],
-        }[axis])
+        # Blender derives the axis colors from the grid and axis theme colors.
+        theme = context.preferences.themes[0]
+        view_3d = theme.view_3d
+        user_interface = theme.user_interface
 
-        color = grid.lerp(axis_theme, 0.5)
-        return tuple(max(0.0, component - (10.0 / 255.0)) for component in color)
+        grid = Vector(view_3d.grid[:3])
 
-    shader.uniform_float("lineWidth", arrow_width)
+        def axis_color(axis):
+            axis_theme = Vector({
+                "X": user_interface.axis_x[:3],
+                "Y": user_interface.axis_y[:3],
+            }[axis])
 
-    horizontal_vertices = arrow_vertices("RIGHT") + arrow_vertices("LEFT")
-    horizontal_batch = batch_for_shader(shader, 'LINES', {"pos": horizontal_vertices})
+            color = grid.lerp(axis_theme, 0.5)
+            return tuple(max(0.0, component - (10.0 / 255.0)) for component in color)
 
-    shader.uniform_float("color", (*axis_color("X"), 1.0))
-    horizontal_batch.draw(shader)
+        shader.uniform_float("lineWidth", arrow_width)
 
-    vertical_vertices = arrow_vertices("UP") + arrow_vertices("DOWN")
-    vertical_batch = batch_for_shader(shader, 'LINES', {"pos": vertical_vertices})
+        horizontal_vertices = arrow_vertices("RIGHT") + arrow_vertices("LEFT")
+        horizontal_batch = batch_for_shader(shader, 'LINES', {"pos": horizontal_vertices})
 
-    shader.uniform_float("color", (*axis_color("Y"), 1.0))
-    vertical_batch.draw(shader)
+        shader.uniform_float("color", (*axis_color("X"), 1.0))
+        horizontal_batch.draw(shader)
 
-    gpu.state.blend_set(previous_blend)
+        vertical_vertices = arrow_vertices("UP") + arrow_vertices("DOWN")
+        vertical_batch = batch_for_shader(shader, 'LINES', {"pos": vertical_vertices})
+
+        shader.uniform_float("color", (*axis_color("Y"), 1.0))
+        vertical_batch.draw(shader)
+    finally:
+        gpu.state.blend_set(previous_blend)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2584,7 +2585,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         else:
             window_manager.cursortransform_active_translate_axis = ""
 
-        self._axis_line_handler = bpy.types.SpaceView3D.draw_handler_add(
+        self._constraint_line_handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_translate_constraint_lines,
             (self, context.region.as_pointer()),
             'WINDOW',
@@ -2599,13 +2600,13 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         return {'RUNNING_MODAL'}
 
-    def _remove_axis_line_handler(self):
-        """Remove the translation-axis draw handler."""
-        if getattr(self, "_axis_line_handler", None) is None:
+    def _remove_constraint_line_handler(self):
+        """Remove the constraint-line draw handler."""
+        if getattr(self, "_constraint_line_handler", None) is None:
             return
 
-        bpy.types.SpaceView3D.draw_handler_remove(self._axis_line_handler, 'WINDOW')
-        self._axis_line_handler = None
+        bpy.types.SpaceView3D.draw_handler_remove(self._constraint_line_handler, 'WINDOW')
+        self._constraint_line_handler = None
 
     def _get_active_orient(self):
         """Return the currently active translation orientation."""
@@ -3176,7 +3177,7 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         global _TRANSLATE_GHOST_START_ORIENT
         global _TRANSLATE_ACTIVE_ORIENT
 
-        self._remove_axis_line_handler()
+        self._remove_constraint_line_handler()
 
         _TRANSLATE_GHOST_START_LOC = None
         _TRANSLATE_GHOST_START_ORIENT = None
@@ -3636,26 +3637,28 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
         original_color = self.color
         original_alpha = self.alpha
 
-        self.color = fill_color
-        self.alpha = fill_highlight_alpha if self.is_highlight else fill_alpha
-        self.draw_custom_shape(self._fill_shape)
+        try:
+            self.color = fill_color
+            self.alpha = fill_highlight_alpha if self.is_highlight else fill_alpha
+            self.draw_custom_shape(self._fill_shape)
 
-        self.color = outline_color
-        self.alpha = outline_highlight_alpha if self.is_highlight else outline_alpha
+            self.color = outline_color
+            self.alpha = outline_highlight_alpha if self.is_highlight else outline_alpha
 
-        previous_blend = gpu.state.blend_get()
-        previous_line_width = gpu.state.line_width_get()
+            previous_blend = gpu.state.blend_get()
+            previous_line_width = gpu.state.line_width_get()
 
-        gpu.state.blend_set('ALPHA')
-        gpu.state.line_width_set(PLANE_LINE_WIDTH)
+            try:
+                gpu.state.blend_set('ALPHA')
+                gpu.state.line_width_set(PLANE_LINE_WIDTH)
 
-        self.draw_custom_shape(self._outline_shape)
-
-        gpu.state.line_width_set(previous_line_width)
-        gpu.state.blend_set(previous_blend)
-
-        self.color = original_color
-        self.alpha = original_alpha
+                self.draw_custom_shape(self._outline_shape)
+            finally:
+                gpu.state.line_width_set(previous_line_width)
+                gpu.state.blend_set(previous_blend)
+        finally:
+            self.color = original_color
+            self.alpha = original_alpha
 
     def draw_select(self, _context, select_id):
         self.draw_custom_shape(self._fill_shape, select_id=select_id)
@@ -3739,42 +3742,45 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
         original_color = self.color
         original_alpha = self.alpha
 
-        self.color = ROTATE_SECTOR_FILL_COLOR[:3]
+        try:
+            self.color = ROTATE_SECTOR_FILL_COLOR[:3]
 
-        if rotation_count:
-            background_start = start_angle + remaining_angle
-            background_end = background_start + background_angle
-            # Rebuilt every draw: the sector's angles change continuously
-            # during the modal, so there's nothing stable to cache.
-            background_shape = self.new_custom_shape(
-                'TRIS',
-                _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS)
-            )
-            self.alpha = fill_alpha * rotation_count
-            self.draw_custom_shape(background_shape)
+            if rotation_count:
+                background_start = start_angle + remaining_angle
+                background_end = background_start + background_angle
+                # Rebuilt every draw: the sector's angles change continuously
+                # during the modal, so there's nothing stable to cache.
+                background_shape = self.new_custom_shape(
+                    'TRIS',
+                    _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS)
+                )
+                self.alpha = fill_alpha * rotation_count
+                self.draw_custom_shape(background_shape)
 
-        if abs(remaining_angle) > 1e-6:
-            steps = max(12, int(ROTATE_SECTOR_STEPS * abs(remaining_angle) / math.tau))
-            remainder_shape = self.new_custom_shape(
-                'TRIS',
-                _build_sector_fan_vertices(start_angle, start_angle + remaining_angle, steps)
-            )
-            self.alpha = fill_alpha * (rotation_count + 1)
-            self.draw_custom_shape(remainder_shape)
+            if abs(remaining_angle) > 1e-6:
+                steps = max(12, int(ROTATE_SECTOR_STEPS * abs(remaining_angle) / math.tau))
+                remainder_shape = self.new_custom_shape(
+                    'TRIS',
+                    _build_sector_fan_vertices(start_angle, start_angle + remaining_angle, steps)
+                )
+                self.alpha = fill_alpha * (rotation_count + 1)
+                self.draw_custom_shape(remainder_shape)
 
-        previous_blend = gpu.state.blend_get()
-        gpu.state.blend_set('ALPHA')
+            previous_blend = gpu.state.blend_get()
 
-        with gpu.matrix.push_pop():
-            gpu.matrix.multiply_matrix(self.matrix_world)
+            try:
+                gpu.state.blend_set('ALPHA')
 
-            _draw_radius_line(start_angle, (*radius_color[:3], 1.0), start_width)
-            _draw_radius_line(start_angle + total_angle, (*radius_color[:3], 1.0), end_width)
+                with gpu.matrix.push_pop():
+                    gpu.matrix.multiply_matrix(self.matrix_world)
 
-        gpu.state.blend_set(previous_blend)
-
-        self.color = original_color
-        self.alpha = original_alpha
+                    _draw_radius_line(start_angle, (*radius_color[:3], 1.0), start_width)
+                    _draw_radius_line(start_angle + total_angle, (*radius_color[:3], 1.0), end_width)
+            finally:
+                gpu.state.blend_set(previous_blend)
+        finally:
+            self.color = original_color
+            self.alpha = original_alpha
 
     def draw_select(self, _context, select_id):
         pass
@@ -3831,23 +3837,24 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
         previous_depth_test = gpu.state.depth_test_get()
         previous_depth_mask = gpu.state.depth_mask_get()
 
-        gpu.state.blend_set('ALPHA')
-        gpu.state.depth_test_set('NONE')
-        gpu.state.depth_mask_set(False)
+        try:
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('NONE')
+            gpu.state.depth_mask_set(False)
 
-        with gpu.matrix.push_pop():
-            gpu.matrix.multiply_matrix(self.matrix_world)
+            with gpu.matrix.push_pop():
+                gpu.matrix.multiply_matrix(self.matrix_world)
 
-            shader.bind()
-            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-            shader.uniform_float("lineWidth", scaled_tick_width)
-            shader.uniform_float("color", tick_color)
+                shader.bind()
+                shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+                shader.uniform_float("lineWidth", scaled_tick_width)
+                shader.uniform_float("color", tick_color)
 
-            batch.draw(shader)
-
-        gpu.state.depth_mask_set(previous_depth_mask)
-        gpu.state.depth_test_set(previous_depth_test)
-        gpu.state.blend_set(previous_blend)
+                batch.draw(shader)
+        finally:
+            gpu.state.depth_mask_set(previous_depth_mask)
+            gpu.state.depth_test_set(previous_depth_test)
+            gpu.state.blend_set(previous_blend)
 
     def draw_select(self, _context, _select_id):
         pass
@@ -3985,7 +3992,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         operator_properties.release_confirm = True
 
         # Blender draws gizmos in reverse registration order. Preserve this
-        # order so ticks appear above rings, sectors, and axis lines.
+        # order so ticks appear above rings and sectors.
         self.rotate_ticks = self.gizmos.new("CURSORTRANSFORM_GT_rotate_ticks")
         self.rotate_ticks.use_tooltip = False
         self.rotate_ticks.hide_select = True
