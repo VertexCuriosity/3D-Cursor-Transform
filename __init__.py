@@ -125,12 +125,12 @@ ROTATE_RING_PIXEL_RADIUS = 2.12
 ROTATE_VIEW_RING_PIXEL_RADIUS = 2.12
 ROTATE_RING_BASIS_SAMPLE = 0.25
 
-# Rotation constraint guide line
-ROTATE_CONSTRAINT_LINE_WIDTH = 2.0
-ROTATE_CONSTRAINT_AXIS_SAMPLE = 0.25
+# Blender-style 3D constraint line rendering
+CONSTRAINT_LINE_WIDTH = 2.0
+CONSTRAINT_LINE_ACTIVE_BASE = (220, 220, 220)
 
-# MMB axis pickup
-ROTATE_MMB_AXIS_LINE_DIM_ALPHA = 0.35
+# Middle-mouse axis picking
+ROTATE_CONSTRAINT_AXIS_SAMPLE = 0.25
 
 # Rotation ring and free-rotate layout
 ROTATE_SECTOR_SCALE_FACTOR = 0.97
@@ -191,7 +191,6 @@ class RotationDrawState:
         self.total_angle = 0.0
         self.snap_active = False
         self.snap_step = ROTATE_SNAP_STEP
-        self.mmb_held = False
 
 
 _ROTATE_DRAW_STATE = RotationDrawState()
@@ -820,17 +819,6 @@ def get_theme_gizmo_colors(context):
     }
 
 
-def axis_highlight_color(rgb):
-    """Brighten an RGB color by blending it toward white."""
-    factor = 0.35
-
-    red = rgb[0] + (1.0 - rgb[0]) * factor
-    green = rgb[1] + (1.0 - rgb[1]) * factor
-    blue = rgb[2] + (1.0 - rgb[2]) * factor
-
-    return (red, green, blue)
-
-
 def smoothstep(edge_start, edge_end, value):
     """Return a smooth interpolation between two edge values."""
     if edge_start == edge_end:
@@ -992,89 +980,6 @@ def _draw_dashed_line_2d(start, end, color, dash_length, gap_length, line_width)
     shader.uniform_float("lineWidth", width_pixels)
     shader.uniform_float("color", color)
     batch.draw(shader)
-
-    gpu.state.blend_set(previous_blend)
-
-
-def _draw_translate_axis_line_op(operator):
-    """Draw translation constraint lines during the custom modal."""
-    context = bpy.context
-
-    if operator._mmb_held:
-        axes_to_draw = ("X", "Y", "Z")
-    elif operator._axis in {"X", "Y", "Z"}:
-        axes_to_draw = (operator._axis,)
-    elif operator._plane_exclude_axis in {"X", "Y", "Z"}:
-        axes_to_draw = tuple(
-            axis
-            for axis in ("X", "Y", "Z")
-            if axis != operator._plane_exclude_axis
-        )
-    else:
-        return
-
-    center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data, operator._start_loc
-    )
-
-    if center_2d is None:
-        return
-
-    half_length_pixels = float(
-        max(context.region.width, context.region.height) * 2.0
-    )
-
-    axis_colors = get_theme_gizmo_colors(context)
-    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-
-    scaled_line_width = (
-        ROTATE_CONSTRAINT_LINE_WIDTH
-        * context.preferences.system.pixel_size
-    )
-
-    previous_blend = gpu.state.blend_get()
-    gpu.state.blend_set('ALPHA')
-
-    shader.bind()
-    shader.uniform_float(
-        "viewportSize",
-        gpu.state.viewport_get()[2:],
-    )
-    shader.uniform_float("lineWidth", scaled_line_width)
-
-    for axis in axes_to_draw:
-        axis_index = AXIS_INDEX[axis]
-        axis_vector = operator._get_active_orient().col[axis_index].to_3d().normalized()
-
-        direction_2d = _project_axis_dir_2d(
-            context, operator._start_loc, axis_vector
-        )
-
-        if direction_2d is None:
-            continue
-
-        axis_color = axis_highlight_color(axis_colors[axis])
-
-        if operator._mmb_held:
-            alpha = 1.0 if axis == operator._axis else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
-        else:
-            alpha = 1.0
-
-        color = (axis_color[0], axis_color[1], axis_color[2], alpha)
-
-        line_start = Vector((
-            center_2d.x - direction_2d.x * half_length_pixels,
-            center_2d.y - direction_2d.y * half_length_pixels,
-        ))
-        line_end = Vector((
-            center_2d.x + direction_2d.x * half_length_pixels,
-            center_2d.y + direction_2d.y * half_length_pixels,
-        ))
-
-        batch = batch_for_shader(shader, 'LINES', {"pos": [line_start, line_end]})
-
-        shader.uniform_float("color", color)
-        batch.draw(shader)
 
     gpu.state.blend_set(previous_blend)
 
@@ -1252,87 +1157,110 @@ def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
     return closest_axis
 
 
-# ── Rotation guide drawing ───────────────────────────────────────────────────
+# ── Constraint line drawing ──────────────────────────────────────────────────
 
 
-def _draw_shortcut_axis_line(operator):
-    """
-    Draw rotation constraint lines when the gizmo system is unavailable.
-    """
-    context = bpy.context
+def constraint_axis_color(context, axis, candidate=False):
+    """Calculate a constraint-line color using Blender's native make_axis_color() logic."""
+    theme = context.preferences.themes[0]
+    axis_color = getattr(theme.user_interface, "axis_" + axis.lower())
 
-    gizmo_draws_axis_lines = (
-        viewport_allows_gizmo(context)
-        and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
-    )
-
-    if gizmo_draws_axis_lines:
-        return
-
-    if _ROTATE_DRAW_STATE.mmb_held:
-        axes_to_draw = ("X", "Y", "Z")
-    elif operator.axis in {"X", "Y", "Z"}:
-        axes_to_draw = (operator.axis,)
+    if candidate:
+        base = [round(channel * 255) for channel in theme.view_3d.grid[:3]]
     else:
+        base = CONSTRAINT_LINE_ACTIVE_BASE
+
+    # Theme colors are stored as 8-bit values, so rounding recovers them exactly.
+    channels = (
+        math.floor(0.5 * base_channel + 0.5 * round(axis_channel * 255)) - 10
+        for base_channel, axis_channel in zip(base, axis_color[:3])
+    )
+
+    return tuple(max(0, min(255, channel)) / 255.0 for channel in channels) + (1.0,)
+
+
+def _draw_constraint_lines(region_pointer, center, orient, active_axes, show_candidates):
+    """Draw 3D constraint lines using Blender's native transform rendering approach."""
+    context = bpy.context
+    region = context.region
+    space = context.space_data
+
+    # Follow Blender 5.2's behavior in both Blender 4.5 and 5.2:
+    # draw only in the initiating 3D View when overlays are enabled.
+    if region is None or region.as_pointer() != region_pointer:
         return
 
-    center_2d = view3d_utils.location_3d_to_region_2d(
-        context.region, context.region_data, operator._start_loc
-    )
-
-    if center_2d is None:
+    if space is None or space.type != 'VIEW_3D' or not space.overlay.show_overlays:
         return
 
-    half_length_pixels = float(
-        max(context.region.width, context.region.height) * 2.0
-    )
+    # Middle-mouse candidates are drawn first so the constrained axis stays on top.
+    lines = []
 
-    scaled_line_width = (
-        ROTATE_CONSTRAINT_LINE_WIDTH
-        * context.preferences.system.pixel_size
-    )
+    if show_candidates:
+        lines.extend((axis, True) for axis in ("X", "Y", "Z"))
 
-    axis_colors = get_theme_gizmo_colors(context)
+    lines.extend((axis, False) for axis in active_axes)
+
+    if not lines:
+        return
+
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
 
     previous_blend = gpu.state.blend_get()
+    previous_depth_test = gpu.state.depth_test_get()
+    previous_depth_mask = gpu.state.depth_mask_get()
+
     gpu.state.blend_set('ALPHA')
+    gpu.state.depth_test_set('NONE')
+    gpu.state.depth_mask_set(False)
 
-    shader.bind()
-    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-    shader.uniform_float("lineWidth", scaled_line_width)
+    try:
+        shader.bind()
+        shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+        shader.uniform_float("lineWidth", CONSTRAINT_LINE_WIDTH * context.preferences.system.pixel_size)
 
-    for axis in axes_to_draw:
-        if _ROTATE_DRAW_STATE.mmb_held:
-            direction_2d = operator._mmb_axis_dirs_2d.get(axis)
-        else:
-            axis_index = AXIS_INDEX[axis]
-            world_axis = operator._get_active_orient().col[axis_index].to_3d().normalized()
-            direction_2d = _project_axis_dir_2d(context, operator._start_loc, world_axis)
+        for axis, candidate in lines:
+            offset = orient.col[AXIS_INDEX[axis]].to_3d().normalized() * space.clip_end
+            batch = batch_for_shader(shader, 'LINES', {"pos": [center + offset, center - offset]})
 
-        if direction_2d is None:
-            continue
+            shader.uniform_float("color", constraint_axis_color(context, axis, candidate))
+            batch.draw(shader)
+    finally:
+        gpu.state.depth_mask_set(previous_depth_mask)
+        gpu.state.depth_test_set(previous_depth_test)
+        gpu.state.blend_set(previous_blend)
 
-        alpha = 1.0 if axis == operator.axis else ROTATE_MMB_AXIS_LINE_DIM_ALPHA
 
-        axis_color = axis_highlight_color(axis_colors[axis])
-        color = (axis_color[0], axis_color[1], axis_color[2], alpha)
+def _draw_translate_constraint_lines(operator, region_pointer):
+    """Draw the constraint lines of the custom translation modal."""
+    if operator._mmb_held:
+        active_axes = (operator._axis,) if operator._axis in {"X", "Y", "Z"} else ()
+    elif operator._axis in {"X", "Y", "Z"}:
+        active_axes = (operator._axis,)
+    elif operator._plane_exclude_axis in {"X", "Y", "Z"}:
+        active_axes = tuple(
+            axis for axis in ("X", "Y", "Z") if axis != operator._plane_exclude_axis
+        )
+    else:
+        active_axes = ()
 
-        line_start = Vector((
-            center_2d.x - direction_2d.x * half_length_pixels,
-            center_2d.y - direction_2d.y * half_length_pixels,
-        ))
-        line_end = Vector((
-            center_2d.x + direction_2d.x * half_length_pixels,
-            center_2d.y + direction_2d.y * half_length_pixels,
-        ))
+    _draw_constraint_lines(
+        region_pointer, operator._start_loc, operator._get_active_orient(),
+        active_axes, operator._mmb_held
+    )
 
-        batch = batch_for_shader(shader, 'LINES', {"pos": [line_start, line_end]})
 
-        shader.uniform_float("color", color)
-        batch.draw(shader)
+def _draw_rotate_constraint_lines(operator, region_pointer):
+    """Draw the constraint lines of the custom rotation modal."""
+    active_axes = (operator.axis,) if operator.axis in {"X", "Y", "Z"} else ()
 
-    gpu.state.blend_set(previous_blend)
+    _draw_constraint_lines(
+        region_pointer, operator._start_loc, operator._get_active_orient(),
+        active_axes, operator._mmb_held
+    )
+
+
+# ── Rotation guide drawing ───────────────────────────────────────────────────
 
 
 def _rotate_guide_draw_op(operator):
@@ -1342,9 +1270,6 @@ def _rotate_guide_draw_op(operator):
 
     if center is None or mouse is None:
         return
-
-    # Draw the constraint line first so the dashed guide remains on top.
-    _draw_shortcut_axis_line(operator)
 
     shadow_start = center + ROTATE_GUIDE_SHADOW_OFFSET
     shadow_end = mouse + ROTATE_GUIDE_SHADOW_OFFSET
@@ -1925,6 +1850,12 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_handler = bpy.types.SpaceView3D.draw_handler_add(
             _rotate_guide_draw_op, (self,), 'WINDOW', 'POST_PIXEL'
         )
+        self._constraint_line_handler = bpy.types.SpaceView3D.draw_handler_add(
+            _draw_rotate_constraint_lines,
+            (self, context.region.as_pointer()),
+            'WINDOW',
+            'POST_VIEW',
+        )
 
         context.workspace.status_text_set(draw_status_rotate_axis)
         context.window.cursor_modal_set('NONE')
@@ -1944,10 +1875,14 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _remove_guide_handler(self):
-        """Remove the guide handler and clear its cached state."""
+        """Remove the guide and constraint-line handlers and clear their cached state."""
         if getattr(self, "_guide_handler", None) is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._guide_handler, 'WINDOW')
             self._guide_handler = None
+
+        if getattr(self, "_constraint_line_handler", None) is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self._constraint_line_handler, 'WINDOW')
+            self._constraint_line_handler = None
 
         _ROTATE_DRAW_STATE.reset()
 
@@ -2107,8 +2042,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             self._mmb_axis_dirs_2d[axis] = _project_axis_dir_2d(context, self._start_loc, world_axis)
 
-        _ROTATE_DRAW_STATE.mmb_held = True
-
         self._maybe_switch_axis_by_proximity(context, event)
 
         tag_viewport_redraw(context)
@@ -2134,7 +2067,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         """End middle-mouse axis selection."""
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
-        _ROTATE_DRAW_STATE.mmb_held = False
 
         tag_viewport_redraw(context)
 
@@ -2653,7 +2585,10 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
             window_manager.cursortransform_active_translate_axis = ""
 
         self._axis_line_handler = bpy.types.SpaceView3D.draw_handler_add(
-            _draw_translate_axis_line_op, (self,), 'WINDOW', 'POST_PIXEL'
+            _draw_translate_constraint_lines,
+            (self, context.region.as_pointer()),
+            'WINDOW',
+            'POST_VIEW',
         )
 
         context.window.cursor_modal_set('SCROLL_XY')
@@ -3845,53 +3780,6 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
         pass
 
 
-class CURSORTRANSFORM_GT_axis_line(bpy.types.Gizmo):
-    """Full-screen axis line for constrained cursor rotation."""
-
-    bl_idname = "CURSORTRANSFORM_GT_axis_line"
-
-    def draw(self, context):
-        """Draw the rotation axis line over the scene."""
-        line_width = float(getattr(self, "line_width", ROTATE_CONSTRAINT_LINE_WIDTH))
-        color = getattr(self, "axis_color", (1.0, 1.0, 1.0, 1.0))
-
-        scaled_line_width = line_width * context.preferences.system.pixel_size
-
-        line_extent = 1.0e4
-        vertices = [
-            (0.0, 0.0, -line_extent),
-            (0.0, 0.0, line_extent),
-        ]
-
-        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'LINES', {"pos": vertices})
-
-        previous_blend = gpu.state.blend_get()
-        previous_depth_test = gpu.state.depth_test_get()
-        previous_depth_mask = gpu.state.depth_mask_get()
-
-        gpu.state.blend_set('ALPHA')
-        gpu.state.depth_test_set('NONE')
-        gpu.state.depth_mask_set(False)
-
-        with gpu.matrix.push_pop():
-            gpu.matrix.multiply_matrix(self.matrix_world)
-
-            shader.bind()
-            shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-            shader.uniform_float("lineWidth", scaled_line_width)
-            shader.uniform_float("color", color)
-
-            batch.draw(shader)
-
-        gpu.state.depth_mask_set(previous_depth_mask)
-        gpu.state.depth_test_set(previous_depth_test)
-        gpu.state.blend_set(previous_blend)
-
-    def draw_select(self, _context, _select_id):
-        pass
-
-
 class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
     """Snap-angle tick marks for cursor rotation."""
 
@@ -4124,16 +4012,6 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         self.rotate_sector = self.gizmos.new("CURSORTRANSFORM_GT_rotate_sector")
         self.rotate_sector.use_tooltip = False
         self.rotate_sector.hide_select = True
-
-        # Register axis lines last so they are drawn at the bottom.
-        self.axis_lines = {}
-
-        for axis in ("X", "Y", "Z"):
-            gizmo = self.gizmos.new("CURSORTRANSFORM_GT_axis_line")
-            gizmo.use_tooltip = False
-            gizmo.hide_select = True
-
-            self.axis_lines[axis] = gizmo
 
     def _apply_filled_dot(
         self,
@@ -4514,26 +4392,6 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             self.rotate_sector.start_width = start_width
             self.rotate_sector.end_width = end_width
 
-        # Rotation constraint axis lines
-        for axis, gizmo in self.axis_lines.items():
-            show_axis_line = rotate_running and (_ROTATE_DRAW_STATE.mmb_held or active_rotate_axis == axis)
-            gizmo.hide = not show_axis_line
-
-            if gizmo.hide:
-                continue
-
-            alpha = (
-                ROTATE_MMB_AXIS_LINE_DIM_ALPHA
-                if _ROTATE_DRAW_STATE.mmb_held and axis != active_rotate_axis
-                else 1.0
-            )
-            highlighted_color = axis_highlight_color(axis_colors[axis])
-
-            gizmo.matrix_basis = location_matrix @ rotate_basis @ AXIS_ROT[axis]
-            gizmo.scale_basis = 1.0
-            gizmo.line_width = ROTATE_CONSTRAINT_LINE_WIDTH
-            gizmo.axis_color = (*highlighted_color[:3], alpha)
-
         # Rotation snap ticks
         show_rotate_ticks = show_rotate_sector and _ROTATE_DRAW_STATE.snap_active
         self.rotate_ticks.hide = not show_rotate_ticks
@@ -4691,7 +4549,6 @@ classes = (
     CURSORTRANSFORM_GT_plane_square,
     CURSORTRANSFORM_GT_rotate_free_disc,
     CURSORTRANSFORM_GT_rotate_sector,
-    CURSORTRANSFORM_GT_axis_line,
     CURSORTRANSFORM_GT_rotate_ticks,
     CURSORTRANSFORM_GGT_main,
     CURSORTRANSFORM_AddonPreferences,
