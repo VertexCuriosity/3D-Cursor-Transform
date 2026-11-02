@@ -1186,7 +1186,7 @@ def _closest_axis_to_mouse(mouse_2d, center_2d, axis_directions_2d):
 
 
 def constraint_axis_color(context, axis, candidate=False):
-    """Calculate a constraint-line color using Blender's native make_axis_color() logic."""
+    """Calculate an axis color using Blender's native make_axis_color() logic."""
     theme = context.preferences.themes[0]
     axis_color = getattr(theme.user_interface, "axis_" + axis.lower())
 
@@ -1520,34 +1520,18 @@ def _draw_trackball_cursor(operator, region_pointer):
         shader.uniform_float("color", (0.0, 0.0, 0.0, 0.8))
         background_batch.draw(shader)
 
-        # Blender derives the axis colors from the grid and axis theme colors.
-        theme = context.preferences.themes[0]
-        view_3d = theme.view_3d
-        user_interface = theme.user_interface
-
-        grid = Vector(view_3d.grid[:3])
-
-        def axis_color(axis):
-            axis_theme = Vector({
-                "X": user_interface.axis_x[:3],
-                "Y": user_interface.axis_y[:3],
-            }[axis])
-
-            color = grid.lerp(axis_theme, 0.5)
-            return tuple(max(0.0, component - (10.0 / 255.0)) for component in color)
-
         shader.uniform_float("lineWidth", arrow_width)
 
         horizontal_vertices = arrow_vertices("RIGHT") + arrow_vertices("LEFT")
         horizontal_batch = batch_for_shader(shader, 'LINES', {"pos": horizontal_vertices})
 
-        shader.uniform_float("color", (*axis_color("X"), 1.0))
+        shader.uniform_float("color", constraint_axis_color(context, "X", candidate=True))
         horizontal_batch.draw(shader)
 
         vertical_vertices = arrow_vertices("UP") + arrow_vertices("DOWN")
         vertical_batch = batch_for_shader(shader, 'LINES', {"pos": vertical_vertices})
 
-        shader.uniform_float("color", (*axis_color("Y"), 1.0))
+        shader.uniform_float("color", constraint_axis_color(context, "Y", candidate=True))
         vertical_batch.draw(shader)
     finally:
         gpu.state.blend_set(previous_blend)
