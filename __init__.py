@@ -2393,10 +2393,12 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             'DOWN_ARROW': (0.0, -1.0),
         }
 
-        mouse_delta = Vector(directions[event.type])
+        self._apply_trackball_input(context, event, Vector(directions[event.type]))
 
+    def _apply_trackball_input(self, context, event, mouse_delta):
+        """Accumulate trackball input and apply the resulting rotation, snapped with Ctrl."""
         if event.shift:
-            mouse_delta *= 1.0 / 30.0
+            mouse_delta = mouse_delta * (1.0 / 30.0)
 
         self._mouse_accum += mouse_delta
 
@@ -2435,20 +2437,10 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
             if consume:
                 if self._numeric.last_action in {"RESET", "CANCEL"}:
-                    phi = Vector((
-                        -self._mouse_accum.y * 0.01,
-                        self._mouse_accum.x * 0.01,
-                    ))
+                    self._apply_trackball_input(context, event, Vector((0.0, 0.0)))
+                    return {'RUNNING_MODAL'}
 
-                    if event.ctrl:
-                        snap_step = (
-                            ROTATE_SNAP_PRECISION_STEP
-                            if event.shift
-                            else ROTATE_SNAP_STEP
-                        )
-                        phi.x = round(phi.x / snap_step) * snap_step
-                        phi.y = round(phi.y / snap_step) * snap_step
-                elif self._numeric.active:
+                if self._numeric.active:
                     phi = Vector((
                         math.radians(self._numeric.value(0)),
                         math.radians(self._numeric.value(1)),
@@ -2484,23 +2476,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             mouse_delta = current_mouse - self._previous_mouse_2d
             self._previous_mouse_2d = current_mouse
 
-            if event.shift:
-                mouse_delta *= 1.0 / 30.0
-
-            self._mouse_accum += mouse_delta
-
-            phi = Vector((
-                -self._mouse_accum.y * 0.01,
-                self._mouse_accum.x * 0.01,
-            ))
-
-            if event.ctrl:
-                snap_step = ROTATE_SNAP_PRECISION_STEP if event.shift else ROTATE_SNAP_STEP
-                phi.x = round(phi.x / snap_step) * snap_step
-                phi.y = round(phi.y / snap_step) * snap_step
-
-            self._apply_trackball_rotation(context, phi)
-            tag_viewport_redraw(context)
+            self._apply_trackball_input(context, event, mouse_delta)
             return {'RUNNING_MODAL'}
 
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
