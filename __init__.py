@@ -152,8 +152,7 @@ ROTATE_SNAP_STEP = math.radians(5.0)
 ROTATE_SNAP_PRECISION_STEP = math.radians(1.0)
 ROTATE_TICK_COLOR = (1.0, 1.0, 1.0, 0.95)
 
-# Tick geometry
-# Length and offset use local ring-radius units; width uses screen pixels.
+# Tick geometry: offsets and lengths are relative to ring radius; widths are in pixels.
 ROTATE_TICK_OFFSET_LOCAL = 0.10
 ROTATE_TICK_LENGTH_LOCAL = 0.10
 ROTATE_TICK_WIDTH_PX = 1.0
@@ -490,12 +489,7 @@ def get_view_rot_matrix(context):
 
 
 def build_orient_matrix(context):
-    """
-    Return the active transform basis used by the cursor operators.
-
-    Global uses the identity matrix, View uses the viewport rotation,
-    and unsupported orientations fall back to the cursor's local rotation.
-    """
+    """Return the transform basis, falling back to cursor orientation."""
     orient_type = get_orient_type(context)
 
     if orient_type == 'GLOBAL':
@@ -1031,11 +1025,7 @@ def _draw_dashed_line_2d(start, end, color, dash_length, gap_length, line_width)
 
 
 def _solve_2d_basis(vector, basis_x, basis_y):
-    """
-    Express a 2D vector in the given basis.
-
-    Return the two basis coefficients, or None if the basis is degenerate.
-    """
+    """Return 2D basis coefficients, or None for a degenerate basis."""
     determinant = (
         basis_x.x * basis_y.y
         - basis_x.y * basis_y.x
@@ -2180,7 +2170,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         _ROTATE_DRAW_STATE.snap_active = event.ctrl
         _ROTATE_DRAW_STATE.snap_step = ROTATE_SNAP_PRECISION_STEP if event.ctrl and event.shift else ROTATE_SNAP_STEP
 
-        # Ctrl and Shift update snapping immediately, like Blender's own rotation.
         if event.type in _ROTATE_SNAP_MODIFIER_KEYS and event.value in {'PRESS', 'RELEASE'}:
             if not event.is_repeat:
                 if self._numeric.active:
@@ -2447,7 +2436,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update the trackball rotation and handle modal input."""
-        # Ctrl and Shift update snapping immediately, like Blender's own rotation.
         if event.type in _ROTATE_SNAP_MODIFIER_KEYS and event.value in {'PRESS', 'RELEASE'}:
             if not event.is_repeat:
                 if self._numeric.active:
@@ -3819,8 +3807,6 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
             if rotation_count:
                 background_start = start_angle + remaining_angle
                 background_end = background_start + background_angle
-                # Rebuilt every draw: the sector's angles change continuously
-                # during the modal, so there's nothing stable to cache.
                 background_shape = self.new_custom_shape(
                     'TRIS',
                     _build_sector_fan_vertices(background_start, background_end, ROTATE_SECTOR_STEPS)
