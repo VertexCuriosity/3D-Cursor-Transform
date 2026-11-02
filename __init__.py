@@ -130,7 +130,7 @@ CONSTRAINT_LINE_WIDTH = 2.0
 CONSTRAINT_LINE_ACTIVE_BASE = (220, 220, 220)
 
 # Middle-mouse axis picking
-ROTATE_CONSTRAINT_AXIS_SAMPLE = 0.25
+MMB_AXIS_SAMPLE = 0.25
 
 # Rotation ring and free-rotate layout
 ROTATE_SECTOR_SCALE_FACTOR = 0.97
@@ -211,6 +211,7 @@ _TRANSFORM_REGION_POINTER = None
 
 
 def active_tool_is_cursor(context):
+    """Return whether the 3D Cursor tool is active in the current mode."""
     workspace = getattr(context, "workspace", None)
     mode = getattr(context, "mode", None)
 
@@ -261,6 +262,7 @@ def global_shortcuts_available(context):
 
 
 def viewport_allows_gizmo(context):
+    """Return whether the active 3D View shows gizmos and tool gizmos."""
     space = getattr(context, "space_data", None)
 
     if space is None or space.type != 'VIEW_3D':
@@ -273,6 +275,7 @@ def viewport_allows_gizmo(context):
 
 
 def location_gizmo_enabled(context):
+    """Return whether the active 3D View shows the Move gizmo."""
     space = getattr(context, "space_data", None)
 
     if space is None or space.type != 'VIEW_3D':
@@ -282,6 +285,7 @@ def location_gizmo_enabled(context):
 
 
 def rotation_gizmo_enabled(context):
+    """Return whether the active 3D View shows the Rotate gizmo."""
     space = getattr(context, "space_data", None)
 
     if space is None or space.type != 'VIEW_3D':
@@ -455,6 +459,7 @@ def has_relevant_selection(context):
 
 
 def get_orient_type(context):
+    """Return the scene's active transform orientation type."""
     slots = context.scene.transform_orientation_slots
     return slots[0].type if slots else 'GLOBAL'
 
@@ -667,7 +672,7 @@ def parse_numeric_input(numeric_input):
         return 0.0
 
 
-def switch_native_rotate_to_translate(context, axis=None):
+def switch_rotation_to_native_translate(context, axis=None):
     """Finish cursor rotation and start native cursor translation."""
     cleanup_rotation_modal(context)
 
@@ -1125,7 +1130,7 @@ def _project_axis_dir_2d(context, center_3d, axis_vector):
     center_2d = view3d_utils.location_3d_to_region_2d(context.region, context.region_data, center_3d)
     tip_2d = view3d_utils.location_3d_to_region_2d(
         context.region, context.region_data,
-        center_3d + axis_vector.normalized() * ROTATE_CONSTRAINT_AXIS_SAMPLE
+        center_3d + axis_vector.normalized() * MMB_AXIS_SAMPLE
     )
 
     if center_2d is None or tip_2d is None:
@@ -2069,7 +2074,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
     def _enter_mmb_pickup(self, context, event):
         """Begin automatic axis selection with the middle mouse button."""
-
         self._mmb_held = True
         self._mmb_axis_dirs_2d = {}
 
@@ -2184,7 +2188,7 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
 
             if key == 'G' and not event.is_repeat:
                 self._remove_guide_handler()
-                switch_native_rotate_to_translate(
+                switch_rotation_to_native_translate(
                     context, self.axis if self.axis in {"X", "Y", "Z"} else None
                 )
                 return {'FINISHED'}
@@ -2459,7 +2463,7 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
             if key == 'G' and not event.is_repeat:
                 self._remove_cursor_handler()
                 _ROTATE_DRAW_STATE.active_view = None
-                switch_native_rotate_to_translate(context)
+                switch_rotation_to_native_translate(context)
                 return {'FINISHED'}
 
             if key == 'R' and not event.is_repeat:
@@ -2743,10 +2747,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         if self._axis in {"X", "Y", "Z"}:
             axis_vector = self._get_axis_vector()
-
-            if axis_vector is None:
-                return
-
             amount = delta.dot(axis_vector)
             orient_label = self._get_orient_label(context)
 
@@ -3060,10 +3060,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
 
         elif self._axis in {"X", "Y", "Z"}:
             axis_vector = self._get_axis_vector()
-
-            if axis_vector is None:
-                return
-
             context.scene.cursor.location = self._start_loc + axis_vector * self._numeric.value(0)
 
         else:
@@ -3923,6 +3919,7 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
 
 class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
     """Main gizmo group that draws the 3D Cursor translation and rotation controls."""
+
     bl_idname = "CURSORTRANSFORM_GGT_main"
     bl_label = "3D Cursor Transform Gizmo"
     bl_space_type = 'VIEW_3D'
@@ -4197,7 +4194,6 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         """Prepare gizmo visibility, transforms, colors, and ghost states."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
-        global _TRANSLATE_ACTIVE_ORIENT
         global _TRANSFORM_REGION_POINTER
 
         cursor_location = context.scene.cursor.location
@@ -4750,7 +4746,6 @@ def _unregister_keymaps():
 
 def register():
     """Register the add-on."""
-
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -4774,7 +4769,6 @@ def register():
 
 def unregister():
     """Unregister the add-on."""
-
     _unregister_keymaps()
 
     if hasattr(
