@@ -85,6 +85,14 @@ _NUMERIC_DIGIT_MAP = {
     'NUMPAD_8': '8', 'NUMPAD_9': '9',
 }
 
+# Modifier keys whose press or release changes rotation snapping
+_ROTATE_SNAP_MODIFIER_KEYS = frozenset({
+    'LEFT_CTRL',
+    'RIGHT_CTRL',
+    'LEFT_SHIFT',
+    'RIGHT_SHIFT',
+})
+
 # Shared gizmo opacity
 AXIS_IDLE_ALPHA = 0.6
 AXIS_ACTIVE_ALPHA = 1.0
@@ -2146,6 +2154,10 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_total_angle += angle_delta
         self._guide_previous_mouse_2d = current_mouse.copy()
 
+        self._apply_mouse_angle(context, event)
+
+    def _apply_mouse_angle(self, context, event):
+        """Apply the accumulated mouse rotation with the current snapping modifiers."""
         angle = self._get_applied_mouse_angle(
             context, self._guide_total_angle, event.ctrl, event.shift
         )
@@ -2159,6 +2171,16 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         """Handle constrained cursor rotation."""
         _ROTATE_DRAW_STATE.snap_active = event.ctrl
         _ROTATE_DRAW_STATE.snap_step = ROTATE_SNAP_PRECISION_STEP if event.ctrl and event.shift else ROTATE_SNAP_STEP
+
+        # Ctrl and Shift update snapping immediately, like Blender's own rotation.
+        if event.type in _ROTATE_SNAP_MODIFIER_KEYS and event.value in {'PRESS', 'RELEASE'}:
+            if not event.is_repeat:
+                if self._numeric.active:
+                    tag_viewport_redraw(context)
+                else:
+                    self._apply_mouse_angle(context, event)
+
+            return {'RUNNING_MODAL'}
 
         if event.value == 'PRESS':
             key = event.type
@@ -2417,6 +2439,16 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         """Update the trackball rotation and handle modal input."""
+        # Ctrl and Shift update snapping immediately, like Blender's own rotation.
+        if event.type in _ROTATE_SNAP_MODIFIER_KEYS and event.value in {'PRESS', 'RELEASE'}:
+            if not event.is_repeat:
+                if self._numeric.active:
+                    tag_viewport_redraw(context)
+                else:
+                    self._apply_trackball_input(context, event, Vector((0.0, 0.0)))
+
+            return {'RUNNING_MODAL'}
+
         if event.value == 'PRESS':
             key = event.type
 
