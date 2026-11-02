@@ -4747,10 +4747,12 @@ def _register_keymaps():
     _addon_keymaps.append((keymap, keymap_item))
 
 
-# Mode keymaps that handle G and R natively. Add-on items are merged ahead of
-# Blender's items, and a failing poll() passes the key on to the native item.
-# The Cursor tool's keymap is checked before every mode keymap, so these items
-# never change the Cursor tool's behavior.
+# Register 3D Cursor Transform's shortcuts in each mode instead of "3D View".
+# Blender checks mode keymaps first, and native transforms consume G and R
+# even when nothing is selected, so a "3D View" item is never reached.
+# 3D Cursor Transform's shortcuts take priority within each mode: they
+# transform the 3D Cursor when nothing is selected; otherwise, Blender's
+# native shortcuts take over.
 GLOBAL_SHORTCUT_KEYMAPS = (
     "Object Mode",
     "Pose",
