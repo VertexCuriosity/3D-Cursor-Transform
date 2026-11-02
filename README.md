@@ -1,3 +1,4 @@
+
 [![Watch the 3D Cursor Transform tutorial](screenshots/thumbnail.png)](https://youtu.be/btT_od7eQNs)
 
 [▶ Watch the full tutorial on YouTube](https://youtu.be/btT_od7eQNs)
@@ -14,18 +15,26 @@ Blender already provides an excellent transform system for objects. The 3D Curso
 
 I often use the 3D Cursor as a placement and modeling tool, and I found myself wanting those same transform controls for the 3D Cursor as well. So I built this add-on.
 
-It extends Blender's existing transform system to the 3D Cursor, allowing you to move and rotate it using the same shortcuts, constraints, snapping, and gizmos you already know.
+It extends Blender's existing transform system to the 3D Cursor, allowing you to move and rotate it using the same shortcuts, constraints, snapping, and gizmos you can use with objects.
+
 
 ## Features
+
+By default, the add-on's transform controls are available when the **3D Cursor tool** is active.
 
 - Move and rotate the 3D Cursor using Blender's familiar **G** and **R** shortcuts.
 - Reset the 3D Cursor's location and rotation using **Alt + G** and **Alt + R**.
 - Constrain transformations to the **X**, **Y**, and **Z** axes, including orientation switching by pressing the axis key again.
-- Use **plane constraints** with **Shift + X**, **Y**, and **Z**.
+- Use **plane constraints** with **Shift + X**, **Shift + Y**, and **Shift + Z**.
 - Support for **numeric input** and **Arrow key** adjustments for precise transformations.
 - Hold **Shift** for precision mode.
 - Use Blender's built-in **snapping** system.
-- Transform the 3D Cursor using dedicated **move** and **rotate gizmos**.
+- Transform the 3D Cursor using dedicated **Move** and **Rotate gizmos**.
+
+Additionally, the add-on preferences offer two optional settings that extend these controls beyond the 3D Cursor tool:
+
+- **Global transform shortcuts:** Use the 3D Cursor's transform shortcuts with another tool active when nothing is selected.
+- **Global transform gizmos:** Display the 3D Cursor's Move and Rotate gizmos with another tool active when nothing is selected.
 
 ## Installation
 
@@ -48,21 +57,44 @@ It extends Blender's existing transform system to the 3D Cursor, allowing you to
 
 ## Usage
 
-3D Cursor Transform is designed to work exactly like Blender's native transform system. Simply select the **3D Cursor tool** to access the add-on's transform features.
+3D Cursor Transform is designed to work exactly like Blender's native transform system. By default, simply select the 3D Cursor tool to access the add-on's transform features.
 
 If you're already familiar with transforming objects, you'll feel right at home using the same shortcuts and controls with the 3D Cursor.
 
 ### Transform the 3D Cursor
 
-With the **3D Cursor** tool active, press **G** to move or **R** to rotate the 3D Cursor.
+With the **3D Cursor tool** active, press **G** to move or **R** to rotate the 3D Cursor.
 
 Use **Alt + G** to reset the cursor's location to the world origin, or **Alt + R** to reset its rotation.
 
 ![3D Cursor rotation](screenshots/rotate.png)
 
-### Constraint the 3D Cursor
+### Global 3D Cursor Transform
 
-Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to switch between **Global** and **Local** orientations, or use **Shift + X**, **Y**, and **Z** for plane constraints.
+By default, the add-on's transform controls are available when the **3D Cursor tool** is active. You can extend these controls to other tools through the **Global 3D Cursor Transform** settings.
+
+To access these settings:
+
+1. Open **Edit → Preferences → Add-ons**.
+2. Find **3D Cursor Transform** and expand its preferences.
+3. Locate the **Global 3D Cursor Transform** section.
+
+Two independent settings are available:
+
+- **Global Transform Shortcuts:** Use **G**, **R**, **Alt + G**, and **Alt + R** to transform or reset the 3D Cursor when nothing is selected, without switching to the 3D Cursor tool.
+- **Global Transform Gizmos:** Display the 3D Cursor's Move and Rotate gizmos when nothing is selected, without switching to the 3D Cursor tool.
+
+**Both settings are automatically enabled the first time the add-on is activated.** This allows you to discover and try the additional functionality immediately, without having to configure anything.
+
+After the initial activation, your preferences are respected. You can enable or disable either setting independently, and the add-on will not automatically re-enable settings you've turned off.
+
+Global shortcuts work in Object Mode, Pose Mode, and supported Edit Modes. When something is selected, Blender's regular selection-based transform controls remain available.
+
+Global gizmo visibility follows Blender's native gizmo toggles. The **Move** and **Rotate** gizmos must be enabled in the viewport to access the corresponding global cursor gizmos.
+
+### Constrain the 3D Cursor
+
+Use **X**, **Y**, and **Z** to constrain transformations to an axis. Press the same axis key again to switch between **Global** and **Local** orientations, or use **Shift + X**, **Shift + Y**, and **Shift + Z** for plane constraints.
 
 ![3D Cursor transform orientation switching](screenshots/orientation-switch.png)
 
@@ -80,16 +112,19 @@ Enable the **Move** and **Rotate** gizmos from **Viewport Header → Show Gizmo*
 
 ### Precision and Snapping
 
-During a transform, use the **Arrow keys** to make small adjustments, enter numeric values for precise transformations, or hold **Shift** for precision mode. Use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
+During a transform, use the **Arrow keys** to make small adjustments, enter numeric values for precise transformations, or hold **Shift** for precision mode.
+
+Use **Ctrl** to temporarily enter Blender's snapping system and snap the 3D Cursor onto whatever you want.
+
 ![3D Cursor snapping](screenshots/snapping.png)
 
 For complete documentation, visit the [VertexCuriosity](https://vertexcuriosity.com/addons-and-apps/blender-addons/3d-cursor-transform) website.
 
 ## Limitations
 
-When the 3D Cursor gizmo is visible and another element in the scene is selected, Blender also displays the transform gizmo for that selection. This means two gizmos will be visible at the same time: Blender's selection gizmo and the add-on's 3D Cursor gizmo.
+When using the 3D Cursor tool, Blender may display both the selected element's transform gizmo and the add-on's 3D Cursor gizmo at the same time.
 
-If you prefer a less cluttered viewport while using the 3D Cursor tool, simply deselect everything first.
+If you prefer a less cluttered viewport, simply deselect everything first.
 
 Currently, 3D Cursor Transform supports **Global** and **Local** transform orientations. Other transform orientations are not supported at this time, as I haven't found a practical use for them when transforming the 3D Cursor.
 
