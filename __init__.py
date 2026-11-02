@@ -1068,8 +1068,16 @@ def _screen_angle_delta(center, previous_mouse, current_mouse):
     previous_direction.normalize()
     current_direction.normalize()
 
-    dot = max(-1.0, min(1.0, previous_direction.dot(current_direction)))
-    angle_delta = math.acos(dot)
+    dot = previous_direction.dot(current_direction)
+
+    if dot >= 0.0:
+        angle_delta = 2.0 * math.asin(
+            min(1.0, (previous_direction - current_direction).length / 2.0)
+        )
+    else:
+        angle_delta = math.pi - 2.0 * math.asin(
+            min(1.0, (previous_direction + current_direction).length / 2.0)
+        )
 
     if previous_direction.cross(current_direction) > 0.0:
         angle_delta = -angle_delta
