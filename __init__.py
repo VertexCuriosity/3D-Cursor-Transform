@@ -246,8 +246,12 @@ def cursor_transform_context_valid(context):
 
 
 def cursor_controls_available(context):
-    """Return whether the cursor operators may run: Cursor tool, or global shortcuts."""
-    return active_tool_is_cursor(context) or global_shortcuts_available(context)
+    """Return whether the cursor operators may run: Cursor tool, global shortcuts or global gizmos."""
+    return (
+        active_tool_is_cursor(context)
+        or global_shortcuts_available(context)
+        or global_gizmos_available(context)
+    )
 
 
 def addon_preferences(context):
@@ -263,6 +267,18 @@ def global_shortcuts_available(context):
     return (
         preferences is not None
         and preferences.use_global_shortcuts
+        and context.mode in GLOBAL_CURSOR_MODES
+        and not has_relevant_selection(context)
+    )
+
+
+def global_gizmos_available(context):
+    """Return whether the global gizmos may transform the cursor in this context."""
+    preferences = addon_preferences(context)
+
+    return (
+        preferences is not None
+        and preferences.use_global_gizmos
         and context.mode in GLOBAL_CURSOR_MODES
         and not has_relevant_selection(context)
     )
@@ -3424,8 +3440,8 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """Run only while the 3D Cursor tool is active."""
-        return active_tool_is_cursor(context)
+        """Run with the Cursor tool active or when the global gizmos are available."""
+        return active_tool_is_cursor(context) or global_gizmos_available(context)
 
     def invoke(self, context, _event):
         """Hand off to the custom translation modal and finish."""
@@ -3523,7 +3539,7 @@ class CURSORTRANSFORM_OT_rotate_x(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return active_tool_is_cursor(context)
+        return active_tool_is_cursor(context) or global_gizmos_available(context)
 
     def invoke(self, context, _event):
         return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="X")
@@ -3538,7 +3554,7 @@ class CURSORTRANSFORM_OT_rotate_y(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return active_tool_is_cursor(context)
+        return active_tool_is_cursor(context) or global_gizmos_available(context)
 
     def invoke(self, context, _event):
         return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Y")
@@ -3553,7 +3569,7 @@ class CURSORTRANSFORM_OT_rotate_z(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return active_tool_is_cursor(context)
+        return active_tool_is_cursor(context) or global_gizmos_available(context)
 
     def invoke(self, context, _event):
         return bpy.ops.cursortransform.rotate_modal('INVOKE_DEFAULT', axis="Z")
@@ -3917,31 +3933,8 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
         pass
 
 
-class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
-    """Main gizmo group that draws the 3D Cursor translation and rotation controls."""
-
-    bl_idname = "CURSORTRANSFORM_GGT_main"
-    bl_label = "3D Cursor Transform Gizmo"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'WINDOW'
-    bl_options = {'3D', 'PERSISTENT', 'SHOW_MODAL_ALL'}
-
-    @classmethod
-    def poll(cls, context):
-        """Show the group while the active 3D View supports cursor gizmos."""
-        if context.area is None or context.area.type != 'VIEW_3D':
-            return False
-
-        if context.space_data is None or context.space_data.type != 'VIEW_3D':
-            return False
-
-        if not active_tool_is_cursor(context):
-            return False
-
-        return (
-            viewport_allows_gizmo(context)
-            and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
-        )
+class CursorTransformGizmoGroupMixin:
+    """Shared gizmo setup and drawing for the 3D Cursor transform gizmo groups."""
 
     def setup(self, _context):
         """Create the gizmos and bind their operators."""
@@ -4228,7 +4221,7 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
         free_rotate_running = active_rotate_axis == "FREE"
 
         # Hide custom gizmos while Blender handles rotation after an R-swap.
-        native_cursor_rotate_running = active_tool_is_cursor(context) and native_rotate_modal_running(context)
+        native_cursor_rotate_running = native_rotate_modal_running(context) and cursor_controls_available(context)
 
         if native_cursor_rotate_running:
             for gizmo in self.gizmos:
@@ -4536,6 +4529,71 @@ class CURSORTRANSFORM_GGT_main(bpy.types.GizmoGroup):
             )
 
 
+class CURSORTRANSFORM_GGT_main(CursorTransformGizmoGroupMixin, bpy.types.GizmoGroup):
+    """Main gizmo group that draws the 3D Cursor translation and rotation controls."""
+
+    bl_idname = "CURSORTRANSFORM_GGT_main"
+    bl_label = "3D Cursor Transform Gizmo"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'3D', 'PERSISTENT', 'SHOW_MODAL_ALL'}
+
+    @classmethod
+    def poll(cls, context):
+        """Show the group while the active 3D View supports cursor gizmos."""
+        if context.area is None or context.area.type != 'VIEW_3D':
+            return False
+
+        if context.space_data is None or context.space_data.type != 'VIEW_3D':
+            return False
+
+        if not active_tool_is_cursor(context):
+            return False
+
+        return (
+            viewport_allows_gizmo(context)
+            and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
+        )
+
+
+class CURSORTRANSFORM_GGT_global(CursorTransformGizmoGroupMixin, bpy.types.GizmoGroup):
+    """The same cursor gizmos outside the Cursor tool, shown when nothing is selected."""
+
+    bl_idname = "CURSORTRANSFORM_GGT_global"
+    bl_label = "Global 3D Cursor Transform Gizmo"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'3D', 'PERSISTENT', 'SHOW_MODAL_ALL'}
+
+    @classmethod
+    def poll(cls, context):
+        """Show the group outside the Cursor tool while the global gizmos are available."""
+        if context.area is None or context.area.type != 'VIEW_3D':
+            return False
+
+        if context.space_data is None or context.space_data.type != 'VIEW_3D':
+            return False
+
+        if active_tool_is_cursor(context):
+            return False
+
+        # The selection check runs last because it is the most expensive.
+        return (
+            viewport_allows_gizmo(context)
+            and (location_gizmo_enabled(context) or rotation_gizmo_enabled(context))
+            and global_gizmos_available(context)
+        )
+
+    @classmethod
+    def setup_keymap(cls, keyconfig):
+        """Activate on drag like Blender's transform gizmos, so a click still reaches selection."""
+        return keyconfig.keymaps.new(
+            name="Generic Gizmo Maybe Drag",
+            space_type='EMPTY',
+            region_type='WINDOW',
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Add-on Preferences
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4552,6 +4610,12 @@ def _global_controls_update(preferences, _context):
     preferences.global_controls_initialized = True
     preferences.use_global_shortcuts = True
     preferences.use_global_gizmos = True
+
+
+def _global_gizmos_update(preferences, context):
+    """Apply the first-activation rule and redraw the 3D Views so the gizmos appear or hide."""
+    _global_controls_update(preferences, context)
+    tag_all_viewports_redraw(context)
 
 
 class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
@@ -4577,7 +4641,7 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
             "Move and Rotate must be enabled to display their respective gizmos"
         ),
         default=False,
-        update=_global_controls_update,
+        update=_global_gizmos_update,
     )
 
     global_controls_initialized: bpy.props.BoolProperty(
@@ -4629,6 +4693,7 @@ classes = (
     CURSORTRANSFORM_GT_rotate_sector,
     CURSORTRANSFORM_GT_rotate_ticks,
     CURSORTRANSFORM_GGT_main,
+    CURSORTRANSFORM_GGT_global,
     CURSORTRANSFORM_AddonPreferences,
 )
 
