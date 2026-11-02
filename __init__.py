@@ -2568,7 +2568,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
     bl_label = "Cursor Translate Modal"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
-    release_confirm: bpy.props.BoolProperty(default=False)
     axis: bpy.props.StringProperty(default="")
     plane: bpy.props.StringProperty(default="")
 
@@ -3608,7 +3607,6 @@ class CURSORTRANSFORM_OT_global_shortcut(bpy.types.Operator):
         if self.action == 'TRANSLATE':
             result = bpy.ops.cursortransform.translate_modal(
                 'INVOKE_DEFAULT',
-                release_confirm=False,
             )
         elif self.action == 'ROTATE':
             result = bpy.ops.cursortransform.rotate_view('INVOKE_DEFAULT')
@@ -4654,7 +4652,6 @@ def _register_keymaps():
         type='G',
         value='PRESS',
     )
-    keymap_item.properties.release_confirm = False
     _addon_keymaps.append((keymap, keymap_item))
 
     keymap_item = keymap.keymap_items.new(
