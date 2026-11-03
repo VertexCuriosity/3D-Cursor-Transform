@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "cursor_transform"
-version = "1.0.0"
+version = "1.1.0"
 name = "3D Cursor Transform"
 tagline = "Bring Blender's native transform system to the 3D Cursor"
 
