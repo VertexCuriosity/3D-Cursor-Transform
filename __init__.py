@@ -7,7 +7,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # -----------------------------------------------------------------------------
 
+import json
 import math
+import os
 
 import bpy
 import gpu
@@ -1570,7 +1572,7 @@ def _draw_trackball_cursor(operator, region_pointer):
 
 
 class NumericInputState:
-    """Store and edit modal numeric input."""
+    """Manage numeric input, cursor positions, and editing state."""
 
     def __init__(self, component_count=1):
         self.inputs = [""] * component_count
@@ -1600,30 +1602,24 @@ class NumericInputState:
         return parse_numeric_input(self.inputs[component])
 
     def next_component(self):
-        """Move to the next numeric component."""
         self.active_component = (self.active_component + 1) % self.component_count
 
     def move_cursor_left(self):
-        """Move the input cursor one character left."""
         component = self.active_component
         self.cursors[component] = max(0, self.cursors[component] - 1)
 
     def move_cursor_right(self):
-        """Move the input cursor one character right."""
         component = self.active_component
         self.cursors[component] = min(len(self.inputs[component]), self.cursors[component] + 1)
 
     def move_cursor_home(self):
-        """Move the input cursor to the beginning."""
         self.cursors[self.active_component] = 0
 
     def move_cursor_end(self):
-        """Move the input cursor to the end."""
         component = self.active_component
         self.cursors[component] = len(self.inputs[component])
 
     def insert(self, text):
-        """Insert text at the current input cursor."""
         component = self.active_component
         cursor = self.cursors[component]
         value = self.inputs[component]
@@ -1632,7 +1628,6 @@ class NumericInputState:
         self.cursors[component] += len(text)
 
     def backspace(self):
-        """Delete the character before the input cursor."""
         component = self.active_component
         cursor = self.cursors[component]
 
@@ -1647,7 +1642,6 @@ class NumericInputState:
         return True
 
     def delete(self):
-        """Delete the character after the input cursor."""
         component = self.active_component
         cursor = self.cursors[component]
         value = self.inputs[component]
@@ -1846,7 +1840,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return cursor_transform_context_valid(context)
 
     def invoke(self, context, event):
-        """Initialize constrained cursor rotation."""
         cursor = context.scene.cursor
 
         self._start_loc = cursor.matrix.translation.copy()
@@ -1950,7 +1943,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         self._guide_previous_mouse_2d = None
 
     def _get_active_orient(self):
-        """Return the currently active constrained-rotation basis."""
         if self._using_alternate_orient:
             return self._start_orient_alternate
 
@@ -1979,7 +1971,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return f"{value:.2f}"
 
     def _update_header_text(self, context, angle):
-        """Update the rotation value shown in the viewport header."""
         if self._numeric.active:
             angle_text = self._numeric.display_text(0, self._format_angle)
         else:
@@ -2127,7 +2118,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         return False
 
     def _exit_mmb_pickup(self, context):
-        """End middle-mouse axis selection."""
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
 
@@ -2182,7 +2172,6 @@ class CURSORTRANSFORM_OT_rotate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def modal(self, context, event):
-        """Handle constrained cursor rotation."""
         _ROTATE_DRAW_STATE.snap_active = event.ctrl
         _ROTATE_DRAW_STATE.snap_step = ROTATE_SNAP_PRECISION_STEP if event.ctrl and event.shift else ROTATE_SNAP_STEP
 
@@ -2301,7 +2290,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         return cursor_transform_context_valid(context)
 
     def invoke(self, context, event):
-        """Initialize the free-rotation modal state."""
         cursor = context.scene.cursor
         window_manager = context.window_manager
 
@@ -2358,7 +2346,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _remove_cursor_handler(self):
-        """Remove the custom trackball cursor."""
         if getattr(self, "_cursor_handler", None) is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._cursor_handler, 'WINDOW')
             self._cursor_handler = None
@@ -2398,7 +2385,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         )
 
     def _apply_trackball_rotation(self, context, phi):
-        """Apply the current trackball rotation."""
         perspective_inverse = context.region_data.perspective_matrix.inverted()
 
         axis_x = perspective_inverse.col[0].to_3d().normalized()
@@ -2451,7 +2437,6 @@ class CURSORTRANSFORM_OT_rotate_free_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def modal(self, context, event):
-        """Update the trackball rotation and handle modal input."""
         if event.type in _ROTATE_SNAP_MODIFIER_KEYS and event.value in {'PRESS', 'RELEASE'}:
             if not event.is_repeat:
                 if self._numeric.active:
@@ -2596,7 +2581,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return cursor_transform_context_valid(context)
 
     def invoke(self, context, event):
-        """Initialize the custom translation modal state."""
         cursor = context.scene.cursor
 
         self._initial_loc = cursor.location.copy()
@@ -2672,7 +2656,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _remove_constraint_line_handler(self):
-        """Remove the constraint-line draw handler."""
         if getattr(self, "_constraint_line_handler", None) is None:
             return
 
@@ -2680,7 +2663,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._constraint_line_handler = None
 
     def _get_active_orient(self):
-        """Return the currently active translation orientation."""
         if self._using_alternate_orient:
             return self._start_orient_alternate
 
@@ -2696,7 +2678,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return self._get_active_orient().col[axis_index].to_3d().normalized()
 
     def _numeric_component_count(self):
-        """Return the number of editable numeric translation components."""
         if self._axis in {"X", "Y", "Z"}:
             return 1
 
@@ -2706,7 +2687,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return 3
 
     def _advance_numeric_component(self):
-        """Move to the next editable numeric translation component."""
         component_count = self._numeric_component_count()
 
         self._numeric.active_component = (self._numeric.active_component + 1) % component_count
@@ -2902,7 +2882,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         self._update_status_bar(context)
 
     def _clear_constraints(self, context, event):
-        """Clear the active axis or plane constraint."""
         global _TRANSLATE_GHOST_START_ORIENT
         global _TRANSLATE_ACTIVE_ORIENT
 
@@ -2985,7 +2964,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         tag_viewport_redraw(context)
 
     def _exit_mmb_pickup(self, context):
-        """End automatic axis selection."""
         self._mmb_held = False
         self._mmb_axis_dirs_2d = None
         tag_viewport_redraw(context)
@@ -3059,7 +3037,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         return ray_origin + ray_direction * distance
 
     def _apply_numeric_translation(self, context):
-        """Apply the current numeric translation."""
         orientation = self._get_active_orient()
 
         if self._plane_exclude_axis in {"X", "Y", "Z"}:
@@ -3261,7 +3238,6 @@ class CURSORTRANSFORM_OT_translate_modal(bpy.types.Operator):
         tag_all_viewports_redraw(context)
 
     def modal(self, context, event):
-        """Update cursor translation and handle modal input."""
         if event.value == 'PRESS':
             if event.type == 'TAB' and not event.shift:
                 if self._numeric_component_count() > 1:
@@ -3395,7 +3371,6 @@ class CURSORTRANSFORM_OT_translate(bpy.types.Operator):
         return cursor_controls_available(context)
 
     def invoke(self, context, _event):
-        """Start Blender's native cursor translation on one axis."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
@@ -3444,7 +3419,6 @@ class CURSORTRANSFORM_OT_translate_gizmo_start(bpy.types.Operator):
         return active_tool_is_cursor(context) or global_gizmos_available(context)
 
     def invoke(self, context, _event):
-        """Hand off to the custom translation modal and finish."""
         bpy.ops.cursortransform.translate_modal('INVOKE_DEFAULT', axis=self.axis, plane=self.plane)
         return {'FINISHED'}
 
@@ -3464,7 +3438,6 @@ class CURSORTRANSFORM_OT_translate_free(bpy.types.Operator):
         return cursor_controls_available(context)
 
     def invoke(self, context, _event):
-        """Start Blender's native free cursor translation."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
@@ -3499,7 +3472,6 @@ class CURSORTRANSFORM_OT_translate_plane(bpy.types.Operator):
         return cursor_controls_available(context)
 
     def invoke(self, context, _event):
-        """Start Blender's native cursor translation on a plane."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
 
@@ -3649,7 +3621,6 @@ class CURSORTRANSFORM_GT_filled_dot(bpy.types.Gizmo):
     bl_idname = "CURSORTRANSFORM_GT_filled_dot"
 
     def setup(self):
-        """Create the cached filled-circle shape."""
         if hasattr(self, "_shape"):
             return
 
@@ -3670,7 +3641,6 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
     bl_idname = "CURSORTRANSFORM_GT_plane_square"
 
     def setup(self):
-        """Create the cached fill and outline shapes."""
         if hasattr(self, "_fill_shape"):
             return
 
@@ -3700,7 +3670,6 @@ class CURSORTRANSFORM_GT_plane_square(bpy.types.Gizmo):
         self._outline_shape = self.new_custom_shape('LINES', outline_vertices)
 
     def draw(self, _context):
-        """Draw the plane handle fill and outline."""
         fill_color = getattr(self, "fill_color", (1.0, 1.0, 1.0))
         outline_color = getattr(self, "outline_color", fill_color)
 
@@ -3745,7 +3714,6 @@ class CURSORTRANSFORM_GT_rotate_free_disc(bpy.types.Gizmo):
     bl_idname = "CURSORTRANSFORM_GT_rotate_free_disc"
 
     def setup(self):
-        """Create the cached free-rotation disc shape."""
         if hasattr(self, "_shape"):
             return
 
@@ -3795,7 +3763,6 @@ class CURSORTRANSFORM_GT_rotate_sector(bpy.types.Gizmo):
     bl_idname = "CURSORTRANSFORM_GT_rotate_sector"
 
     def draw(self, _context):
-        """Draw the filled rotation sector and its radius markers."""
         start_angle = getattr(self, "start_angle", 0.0)
         total_angle = getattr(self, "total_angle", 0.0)
 
@@ -3865,7 +3832,6 @@ class CURSORTRANSFORM_GT_rotate_ticks(bpy.types.Gizmo):
     bl_idname = "CURSORTRANSFORM_GT_rotate_ticks"
 
     def draw(self, context):
-        """Draw snap ticks around the active rotation ring."""
         start_angle = float(getattr(self, "start_angle", 0.0))
         snap_step = float(getattr(self, "snap_step", ROTATE_SNAP_STEP))
         tick_offset = float(getattr(self, "tick_offset", ROTATE_TICK_OFFSET_LOCAL))
@@ -3937,7 +3903,6 @@ class CursorTransformGizmoGroupMixin:
     """Shared gizmo setup and drawing for the 3D Cursor transform gizmo groups."""
 
     def setup(self, _context):
-        """Create the gizmos and bind their operators."""
         def _new_plane_square(selectable):
             gizmo = self.gizmos.new("CURSORTRANSFORM_GT_plane_square")
             gizmo.use_tooltip = False
@@ -4184,7 +4149,6 @@ class CursorTransformGizmoGroupMixin:
         gizmo.draw_options = draw_options
 
     def draw_prepare(self, context):
-        """Prepare gizmo visibility, transforms, colors, and ghost states."""
         global _TRANSLATE_GHOST_START_LOC
         global _TRANSLATE_GHOST_START_ORIENT
         global _TRANSFORM_REGION_POINTER
@@ -4598,18 +4562,190 @@ class CURSORTRANSFORM_GGT_global(CursorTransformGizmoGroupMixin, bpy.types.Gizmo
 # Add-on Preferences
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Blender discards AddonPreferences when an extension is disabled.
+# Store global settings in the extension's user directory to preserve them
+# across disabling and updates.
+PREFERENCES_FILENAME = "preferences.json"
+PREFERENCES_SCHEMA_VERSION = 1
+PREFERENCES_KEYS = (
+    "use_global_shortcuts",
+    "use_global_gizmos",
+    "global_controls_initialized",
+)
+
+_preferences_restoring = False
+_preferences_update_depth = 0
+_preferences_saved = None
+_preferences_unreadable = False
+
+
+def preferences_directory(create=False):
+    """Return the extension's user directory, or an empty string for legacy installs."""
+    try:
+        return bpy.utils.extension_path_user(__package__, create=create)
+    except ValueError:
+        return ""
+
+
+def _preferences_path():
+    """Return the JSON file path, or None when persistence is unavailable."""
+    directory = preferences_directory()
+    return os.path.join(directory, PREFERENCES_FILENAME) if directory else None
+
+
+def _preferences_values(preferences):
+    return {key: bool(getattr(preferences, key)) for key in PREFERENCES_KEYS}
+
+
+def _read_preferences_file(path):
+    """Return the saved settings, or None when the file is missing, invalid or incompatible."""
+    global _preferences_unreadable
+
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        data = None
+    except OSError as error:
+        # Never overwrite a file that could not be read.
+        _preferences_unreadable = True
+        print(f"3D Cursor Transform: cannot read {path}: {error}")
+        return None
+
+    if (
+        isinstance(data, dict)
+        and data.get("schema_version") == PREFERENCES_SCHEMA_VERSION
+        and all(isinstance(data.get(key), bool) for key in PREFERENCES_KEYS)
+    ):
+        return {key: data[key] for key in PREFERENCES_KEYS}
+
+    try:
+        os.remove(path)
+    except OSError as error:
+        print(f"3D Cursor Transform: cannot remove invalid {path}: {error}")
+
+    return None
+
+
+def _write_preferences_file(path, values):
+    """Write the settings atomically; a failure leaves any existing file untouched."""
+    global _preferences_saved
+
+    temporary_path = path + ".tmp"
+    data = {"schema_version": PREFERENCES_SCHEMA_VERSION, **values}
+
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        with open(temporary_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+            file.write("\n")
+
+        os.replace(temporary_path, path)
+        _preferences_saved = dict(values)
+    except OSError as error:
+        print(f"3D Cursor Transform: cannot save {path}: {error}")
+
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
+
+
+def _save_preferences(preferences):
+    """Save initialized settings when they differ from the last saved values."""
+    if _preferences_unreadable or not preferences.global_controls_initialized:
+        return
+
+    values = _preferences_values(preferences)
+    path = _preferences_path()
+
+    if path is not None and values != _preferences_saved:
+        _write_preferences_file(path, values)
+
+
+def _sync_preferences():
+    """Restore the settings from the JSON file, or update the file from Blender's initialized preferences."""
+    global _preferences_restoring
+    global _preferences_saved
+    global _preferences_unreadable
+
+    _preferences_unreadable = False
+    addon = bpy.context.preferences.addons.get(__package__)
+    path = _preferences_path()
+
+    if addon is None or path is None:
+        return
+
+    preferences = addon.preferences
+    _preferences_saved = _read_preferences_file(path)
+
+    if preferences.global_controls_initialized:
+        _save_preferences(preferences)
+        return
+
+    if _preferences_saved is None:
+        return
+
+    _preferences_restoring = True
+
+    try:
+        for key in PREFERENCES_KEYS:
+            setattr(preferences, key, _preferences_saved[key])
+    finally:
+        _preferences_restoring = False
+
+
 def _global_controls_update(preferences, _context):
     """Enable both controls on first activation; allow independent toggling afterwards."""
-    if preferences.global_controls_initialized:
+    global _preferences_update_depth
+
+    if _preferences_restoring:
         return
 
-    if not (preferences.use_global_shortcuts or preferences.use_global_gizmos):
-        return
+    # Nested updates triggered below only change values; the outermost call saves once.
+    _preferences_update_depth += 1
 
-    # Set the flag first so the nested updates triggered below return early.
-    preferences.global_controls_initialized = True
-    preferences.use_global_shortcuts = True
-    preferences.use_global_gizmos = True
+    try:
+        if preferences.global_controls_initialized:
+            return
+
+        if not (preferences.use_global_shortcuts or preferences.use_global_gizmos):
+            return
+
+        # Set the flag first so the nested updates triggered below return early.
+        preferences.global_controls_initialized = True
+        preferences.use_global_shortcuts = True
+        preferences.use_global_gizmos = True
+    finally:
+        _preferences_update_depth -= 1
+
+        if _preferences_update_depth == 0:
+            _save_preferences(preferences)
+
+
+class CURSORTRANSFORM_OT_open_preferences_folder(bpy.types.Operator):
+    """Open the folder where the global settings are saved."""
+
+    bl_idname = "cursortransform.open_preferences_folder"
+    bl_label = "Open Folder"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, _context):
+        """Create the folder if needed, without creating the settings file, and open it."""
+        directory = preferences_directory(create=True)
+
+        if not directory:
+            self.report({'ERROR'}, "The settings folder is only available for extension installs")
+            return {'CANCELLED'}
+
+        try:
+            return bpy.ops.wm.path_open(filepath=directory)
+        except RuntimeError as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
 
 
 def _global_gizmos_update(preferences, context):
@@ -4667,6 +4803,25 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
         column.prop(self, "use_global_shortcuts")
         column.prop(self, "use_global_gizmos")
 
+        directory = preferences_directory()
+
+        if directory:
+            column.separator(factor=1.0)
+
+            split = column.split(factor=0.13, align=True)
+            split.label(text="Settings Folder")
+
+            row = split.row(align=True)
+            row.label(text=directory)
+
+            row.separator(factor=1.0)
+
+            row.operator(
+                "cursortransform.open_preferences_folder",
+                text="",
+                icon='FILE_FOLDER',
+            )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Keymaps and Registration
@@ -4694,6 +4849,7 @@ classes = (
     CURSORTRANSFORM_GT_rotate_ticks,
     CURSORTRANSFORM_GGT_main,
     CURSORTRANSFORM_GGT_global,
+    CURSORTRANSFORM_OT_open_preferences_folder,
     CURSORTRANSFORM_AddonPreferences,
 )
 
@@ -4811,7 +4967,6 @@ def _unregister_keymaps():
 
 
 def register():
-    """Register the add-on."""
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -4832,9 +4987,10 @@ def register():
     _register_keymaps()
     _register_global_keymaps()
 
+    _sync_preferences()
+
 
 def unregister():
-    """Unregister the add-on."""
     _unregister_keymaps()
 
     if hasattr(
