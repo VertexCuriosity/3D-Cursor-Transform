@@ -84,9 +84,7 @@ Two independent settings are available:
 - **Global Transform Shortcuts:** Use **G**, **R**, **Alt + G**, and **Alt + R** to transform or reset the 3D Cursor when nothing is selected, without switching to the 3D Cursor tool.
 - **Global Transform Gizmos:** Display the 3D Cursor's Move and Rotate gizmos when nothing is selected, without switching to the 3D Cursor tool.
 
-**Both settings are automatically enabled the first time the add-on is activated.** This allows you to discover and try the additional functionality immediately, without having to configure anything.
-
-After the initial activation, your preferences are respected. You can enable or disable either setting independently, and the add-on will not automatically re-enable settings you've turned off.
+Both settings are initially disabled. The first time you enable either setting, both are automatically enabled so you can try them together. After that, you can enable or disable each setting independently.
 
 Global shortcuts work in Object Mode, Pose Mode, and supported Edit Modes. When something is selected, Blender's regular selection-based transform controls remain available.
 
