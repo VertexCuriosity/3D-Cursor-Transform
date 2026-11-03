@@ -4858,7 +4858,6 @@ _addon_keymaps = []
 
 
 def _register_keymaps():
-    """Register shortcuts for the 3D Cursor tool."""
     window_manager = bpy.context.window_manager
     keyconfig = window_manager.keyconfigs.addon
 
@@ -4870,37 +4869,25 @@ def _register_keymaps():
         space_type='VIEW_3D',
     )
 
-    keymap_item = keymap.keymap_items.new(
-        idname="cursortransform.translate_modal",
-        type='G',
-        value='PRESS',
+    shortcuts = (
+        ('G', False, "cursortransform.translate_modal", None),
+        ('R', False, "cursortransform.rotate_view", None),
+        ('G', True, "cursortransform.clear_transform", 'LOCATION'),
+        ('R', True, "cursortransform.clear_transform", 'ROTATION'),
     )
-    _addon_keymaps.append((keymap, keymap_item))
 
-    keymap_item = keymap.keymap_items.new(
-        idname="cursortransform.rotate_view",
-        type='R',
-        value='PRESS',
-    )
-    _addon_keymaps.append((keymap, keymap_item))
+    for key, alt, operator, mode in shortcuts:
+        keymap_item = keymap.keymap_items.new(
+            idname=operator,
+            type=key,
+            value='PRESS',
+            alt=alt,
+        )
 
-    keymap_item = keymap.keymap_items.new(
-        idname="cursortransform.clear_transform",
-        type='G',
-        value='PRESS',
-        alt=True,
-    )
-    keymap_item.properties.mode = 'LOCATION'
-    _addon_keymaps.append((keymap, keymap_item))
+        if mode is not None:
+            keymap_item.properties.mode = mode
 
-    keymap_item = keymap.keymap_items.new(
-        idname="cursortransform.clear_transform",
-        type='R',
-        value='PRESS',
-        alt=True,
-    )
-    keymap_item.properties.mode = 'ROTATION'
-    _addon_keymaps.append((keymap, keymap_item))
+        _addon_keymaps.append((keymap, keymap_item))
 
 
 # Register 3D Cursor Transform's shortcuts in each mode instead of "3D View".
