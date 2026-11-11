@@ -4571,6 +4571,7 @@ PREFERENCES_KEYS = (
     "use_global_shortcuts",
     "use_global_gizmos",
     "global_controls_initialized",
+    "selection_to_cursor_align_rotation",
 )
 
 _preferences_restoring = False
@@ -4595,6 +4596,10 @@ def _preferences_path():
 
 def _preferences_values(preferences):
     return {key: bool(getattr(preferences, key)) for key in PREFERENCES_KEYS}
+
+
+def _preferences_configured(preferences):
+    return preferences.global_controls_initialized or preferences.selection_to_cursor_align_rotation
 
 
 def _read_preferences_file(path):
@@ -4655,8 +4660,8 @@ def _write_preferences_file(path, values):
 
 
 def _save_preferences(preferences):
-    """Save initialized settings when they differ from the last saved values."""
-    if _preferences_unreadable or not preferences.global_controls_initialized:
+    """Save configured settings when they differ from the last saved values."""
+    if _preferences_unreadable or not (_preferences_configured(preferences) or _preferences_saved):
         return
 
     values = _preferences_values(preferences)
@@ -4667,7 +4672,7 @@ def _save_preferences(preferences):
 
 
 def _sync_preferences():
-    """Restore the settings from the JSON file, or update the file from Blender's initialized preferences."""
+    """Restore the settings from the JSON file, or update the file from Blender's configured preferences."""
     global _preferences_restoring
     global _preferences_saved
     global _preferences_unreadable
@@ -4682,7 +4687,7 @@ def _sync_preferences():
     preferences = addon.preferences
     _preferences_saved = _read_preferences_file(path)
 
-    if preferences.global_controls_initialized:
+    if _preferences_configured(preferences):
         _save_preferences(preferences)
         return
 
@@ -4754,6 +4759,42 @@ def _global_gizmos_update(preferences, context):
     tag_all_viewports_redraw(context)
 
 
+# Use Blender's remembered operator properties to preserve native Shift+S behavior.
+SELECTION_TO_CURSOR_OPERATOR = "view3d.snap_selected_to_cursor"
+
+
+def _set_selection_to_cursor_rotation(enabled):
+    properties = bpy.types.WindowManager.operator_properties_last(SELECTION_TO_CURSOR_OPERATOR)
+
+    if properties is not None:
+        properties.use_rotation = enabled
+
+
+def _selection_to_cursor_rotation_enabled():
+    preferences = addon_preferences(bpy.context)
+    return preferences is not None and preferences.selection_to_cursor_align_rotation
+
+
+def _restore_selection_to_cursor_rotation():
+    """Restore the rotation setting after Blender finishes loading a file."""
+    if _selection_to_cursor_rotation_enabled():
+        _set_selection_to_cursor_rotation(True)
+
+
+@bpy.app.handlers.persistent
+def _selection_to_cursor_load_post(*_args):
+    """Defer restoration because Blender clears operator properties after load_post."""
+    if not bpy.app.timers.is_registered(_restore_selection_to_cursor_rotation):
+        bpy.app.timers.register(_restore_selection_to_cursor_rotation, first_interval=0.0)
+
+
+def _selection_to_cursor_update(preferences, _context):
+    _set_selection_to_cursor_rotation(preferences.selection_to_cursor_align_rotation)
+
+    if not _preferences_restoring:
+        _save_preferences(preferences)
+
+
 class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
     """Preferences for using the 3D Cursor controls outside the Cursor tool."""
 
@@ -4785,6 +4826,16 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
         options={'HIDDEN'},
     )
 
+    selection_to_cursor_align_rotation: bpy.props.BoolProperty(
+        name="Align Rotation",
+        description=(
+            "Enable Rotation by default for Selection to Cursor, so selected objects and pose "
+            "bones also take the 3D Cursor's rotation. It can still be changed in Adjust Last Operation"
+        ),
+        default=False,
+        update=_selection_to_cursor_update,
+    )
+
     def draw(self, _context):
         layout = self.layout
 
@@ -4802,6 +4853,21 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
 
         column.prop(self, "use_global_shortcuts")
         column.prop(self, "use_global_gizmos")
+
+        column.separator(factor=2.5)
+
+        column.label(text="Selection to Cursor", icon='PIVOT_CURSOR')
+        column.separator(type='LINE')
+
+        column.label(
+            text="Automatically align selected objects' rotation to the 3D Cursor when using Shift+S → Selection to Cursor."
+        )
+
+        column.separator(factor=0.5)
+
+        column.prop(self, "selection_to_cursor_align_rotation")
+
+        column.separator(factor=1.5)
 
         directory = preferences_directory()
 
@@ -4976,8 +5042,24 @@ def register():
 
     _sync_preferences()
 
+    if _selection_to_cursor_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_selection_to_cursor_load_post)
+
+    if _selection_to_cursor_rotation_enabled():
+        _set_selection_to_cursor_rotation(True)
+
 
 def unregister():
+    # Restore Blender's native Rotation default.
+    if _selection_to_cursor_rotation_enabled():
+        _set_selection_to_cursor_rotation(False)
+
+    if _selection_to_cursor_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_selection_to_cursor_load_post)
+
+    if bpy.app.timers.is_registered(_restore_selection_to_cursor_rotation):
+        bpy.app.timers.unregister(_restore_selection_to_cursor_rotation)
+
     _unregister_keymaps()
 
     if hasattr(
