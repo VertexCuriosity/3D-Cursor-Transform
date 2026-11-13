@@ -7,9 +7,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # -----------------------------------------------------------------------------
 
+import hashlib
 import json
 import math
 import os
+import tempfile
+import time
 
 import bpy
 import gpu
@@ -4563,9 +4566,13 @@ class CURSORTRANSFORM_GGT_global(CursorTransformGizmoGroupMixin, bpy.types.Gizmo
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Blender discards AddonPreferences when an extension is disabled.
-# Store global settings in the extension's user directory to preserve them
-# across disabling and updates.
+# Save settings in JSON to preserve them across disable/re-enable.
+#
+# Invalid files are deleted; a few simple settings don't justify backups.
+# Unreadable files are preserved; failed saves use a pending file.
+# Hashes and timestamps prevent stale pending settings from taking priority.
 PREFERENCES_FILENAME = "preferences.json"
+PENDING_FILENAME = "preferences.pending.json"
 PREFERENCES_SCHEMA_VERSION = 1
 PREFERENCES_KEYS = (
     "use_global_shortcuts",
@@ -4573,25 +4580,34 @@ PREFERENCES_KEYS = (
     "global_controls_initialized",
     "selection_to_cursor_align_rotation",
 )
+PENDING_BASE_KEY = "pending_base"
+SAVED_AT_KEY = "saved_at"
+UNREADABLE = "unreadable"
 
 _preferences_restoring = False
 _preferences_update_depth = 0
 _preferences_saved = None
-_preferences_unreadable = False
+
+# Last known file hashes; None if absent, UNREADABLE if inaccessible.
+_known_main = None
+_known_pending = None
 
 
 def preferences_directory(create=False):
-    """Return the extension's user directory, or an empty string for legacy installs."""
     try:
         return bpy.utils.extension_path_user(__package__, create=create)
     except ValueError:
         return ""
 
 
-def _preferences_path():
-    """Return the JSON file path, or None when persistence is unavailable."""
+def _preferences_paths():
+    """Return the main and pending paths, or (None, None) if unavailable."""
     directory = preferences_directory()
-    return os.path.join(directory, PREFERENCES_FILENAME) if directory else None
+
+    if not directory:
+        return None, None
+
+    return os.path.join(directory, PREFERENCES_FILENAME), os.path.join(directory, PENDING_FILENAME)
 
 
 def _preferences_values(preferences):
@@ -4603,92 +4619,211 @@ def _preferences_configured(preferences):
 
 
 def _read_preferences_file(path):
-    """Return the saved settings, or None when the file is missing, invalid or incompatible."""
-    global _preferences_unreadable
+    """Return (status, data, hash), with status: missing, valid, invalid, or unreadable."""
+    try:
+        with open(path, "rb") as file:
+            raw = file.read()
+    except FileNotFoundError:
+        return "missing", None, None
+    except OSError as error:
+        print(f"3D Cursor Transform: cannot read {path}, leaving it unchanged: {error}")
+        return "unreadable", None, UNREADABLE
+
+    file_hash = hashlib.sha256(raw).hexdigest()
 
     try:
-        with open(path, encoding="utf-8") as file:
-            data = json.load(file)
-    except FileNotFoundError:
-        return None
-    except (json.JSONDecodeError, UnicodeDecodeError):
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
         data = None
-    except OSError as error:
-        # Never overwrite a file that could not be read.
-        _preferences_unreadable = True
-        print(f"3D Cursor Transform: cannot read {path}: {error}")
-        return None
 
     if (
         isinstance(data, dict)
         and data.get("schema_version") == PREFERENCES_SCHEMA_VERSION
         and all(isinstance(data.get(key), bool) for key in PREFERENCES_KEYS)
+        and isinstance(data.get(PENDING_BASE_KEY), (str, type(None)))
+        and type(data.get(SAVED_AT_KEY)) is int
     ):
-        return {key: data[key] for key in PREFERENCES_KEYS}
+        return "valid", data, file_hash
 
+    return "invalid", None, file_hash
+
+
+def _remove_preferences_file(path):
     try:
         os.remove(path)
+    except FileNotFoundError:
+        pass
     except OSError as error:
-        print(f"3D Cursor Transform: cannot remove invalid {path}: {error}")
+        print(f"3D Cursor Transform: cannot remove {path}: {error}")
+        return False
 
-    return None
+    return True
 
 
-def _write_preferences_file(path, values):
-    """Write the settings atomically; a failure leaves any existing file untouched."""
-    global _preferences_saved
+def _write_preferences_file(path, data):
+    """Write JSON atomically and return its hash; preserve the existing file on failure."""
+    text = (json.dumps(data, indent=4) + "\n").encode("utf-8")
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
 
-    temporary_path = path + ".tmp"
-    data = {"schema_version": PREFERENCES_SCHEMA_VERSION, **values}
+    file_descriptor, temporary_path = tempfile.mkstemp(prefix=".preferences.", suffix=".tmp", dir=directory)
 
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        with open(temporary_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
-            file.write("\n")
+        with os.fdopen(file_descriptor, "wb") as file:
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
 
         os.replace(temporary_path, path)
-        _preferences_saved = dict(values)
-    except OSError as error:
-        print(f"3D Cursor Transform: cannot save {path}: {error}")
+    finally:
+        if os.path.exists(temporary_path):
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+
+    return hashlib.sha256(text).hexdigest()
+
+
+def _store_preferences(values):
+    """Save settings to the main file, or to the pending file on failure."""
+    global _known_main
+    global _known_pending
+    global _preferences_saved
+
+    main_path, pending_path = _preferences_paths()
+
+    if main_path is None:
+        return
+
+    if _known_main != UNREADABLE:
+        try:
+            with open(main_path, "rb"):
+                pass
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            print(f"3D Cursor Transform: cannot read {main_path}, leaving it unchanged: {error}")
+            _known_main = UNREADABLE
+
+    main_error = "it could not be read" if _known_main == UNREADABLE else None
+
+    saved_at = time.time_ns()
+
+    if main_error is None:
+        data = {"schema_version": PREFERENCES_SCHEMA_VERSION, **values, SAVED_AT_KEY: saved_at}
 
         try:
-            os.remove(temporary_path)
-        except OSError:
-            pass
+            _known_main = _write_preferences_file(main_path, data)
+        except OSError as error:
+            main_error = error
+
+    if main_error is None:
+        _preferences_saved = dict(values)
+
+        # The pending file is now outdated, so removal failure is harmless.
+        if _known_pending not in (None, UNREADABLE) and _remove_preferences_file(pending_path):
+            _known_pending = None
+
+        return
+
+    if _known_pending == UNREADABLE:
+        print(
+            f"3D Cursor Transform: cannot save {main_path} ({main_error}) and {PENDING_FILENAME} cannot be read. "
+            "The settings are not saved: they stay in Blender's preferences for this session, "
+            "and saving is retried with the next change and on disable."
+        )
+        return
+
+    data = {
+        "schema_version": PREFERENCES_SCHEMA_VERSION,
+        **values,
+        PENDING_BASE_KEY: _known_main,
+        SAVED_AT_KEY: saved_at,
+    }
+
+    try:
+        _known_pending = _write_preferences_file(pending_path, data)
+    except OSError as error:
+        print(
+            f"3D Cursor Transform: cannot save {main_path} ({main_error}) or {PENDING_FILENAME} ({error}). "
+            "The settings are not saved: they stay in Blender's preferences for this session, "
+            "and saving is retried with the next change and on disable."
+        )
+        return
+
+    _preferences_saved = dict(values)
+
+    if _known_main == UNREADABLE:
+        when = "the next time the extension is enabled and the file can be read"
+    else:
+        when = "with the next change, on disable, or the next time the extension is enabled"
+
+    print(
+        f"3D Cursor Transform: cannot save {main_path} ({main_error}). The settings are kept in "
+        f"{PENDING_FILENAME} and moved to {PREFERENCES_FILENAME} {when}."
+    )
 
 
 def _save_preferences(preferences):
-    """Save configured settings when they differ from the last saved values."""
-    if _preferences_unreadable or not (_preferences_configured(preferences) or _preferences_saved):
+    if not (_preferences_configured(preferences) or _preferences_saved):
         return
 
     values = _preferences_values(preferences)
-    path = _preferences_path()
 
-    if path is not None and values != _preferences_saved:
-        _write_preferences_file(path, values)
+    if values != _preferences_saved:
+        _store_preferences(values)
 
 
 def _sync_preferences():
-    """Restore the settings from the JSON file, or update the file from Blender's configured preferences."""
+    """Synchronize saved settings, prioritizing Blender's configured preferences."""
+    global _known_main
+    global _known_pending
     global _preferences_restoring
     global _preferences_saved
-    global _preferences_unreadable
 
-    _preferences_unreadable = False
+    _known_main = _known_pending = _preferences_saved = None
     addon = bpy.context.preferences.addons.get(__package__)
-    path = _preferences_path()
+    main_path, pending_path = _preferences_paths()
 
-    if addon is None or path is None:
+    if addon is None or main_path is None:
         return
 
     preferences = addon.preferences
-    _preferences_saved = _read_preferences_file(path)
+    main_status, main_data, main_hash = _read_preferences_file(main_path)
+    pending_status, pending_data, pending_hash = _read_preferences_file(pending_path)
+
+    _known_main = main_hash
+    _known_pending = pending_hash
+
+    if main_status == "invalid" and _remove_preferences_file(main_path):
+        _known_main = None
+
+    if pending_status == "invalid" and _remove_preferences_file(pending_path):
+        _known_pending = None
+
+    # Use pending settings if the main file is invalid, matches their base,
+    # or is older than pending settings created while it was unreadable.
+    pending_current = pending_status == "valid" and (
+        main_status != "valid"
+        or pending_data[PENDING_BASE_KEY] == main_hash
+        or (
+            pending_data[PENDING_BASE_KEY] == UNREADABLE
+            and pending_data[SAVED_AT_KEY] > main_data[SAVED_AT_KEY]
+        )
+    )
+
+    if pending_status == "valid" and not pending_current and _remove_preferences_file(pending_path):
+        _known_pending = None
+
+    source = pending_data if pending_current else main_data
+    _preferences_saved = None if source is None else {key: source[key] for key in PREFERENCES_KEYS}
 
     if _preferences_configured(preferences):
-        _save_preferences(preferences)
+        values = _preferences_values(preferences)
+
+        if values != _preferences_saved or (pending_current and _known_main != UNREADABLE):
+            _store_preferences(values)
         return
 
     if _preferences_saved is None:
@@ -4701,6 +4836,9 @@ def _sync_preferences():
             setattr(preferences, key, _preferences_saved[key])
     finally:
         _preferences_restoring = False
+
+    if pending_current and _known_main != UNREADABLE:
+        _store_preferences(_preferences_saved)
 
 
 def _global_controls_update(preferences, _context):
@@ -4743,7 +4881,7 @@ class CURSORTRANSFORM_OT_open_preferences_folder(bpy.types.Operator):
         directory = preferences_directory(create=True)
 
         if not directory:
-            self.report({'ERROR'}, "The settings folder is only available for extension installs")
+            self.report({'ERROR'}, "The settings folder is unavailable")
             return {'CANCELLED'}
 
         try:
@@ -5045,12 +5183,18 @@ def register():
     if _selection_to_cursor_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_selection_to_cursor_load_post)
 
+    # Blender's native behavior already matches the disabled preference.
+    # Only restore the remembered rotation setting when enabled.
     if _selection_to_cursor_rotation_enabled():
         _set_selection_to_cursor_rotation(True)
 
 
 def unregister():
-    # Restore Blender's native Rotation default.
+    addon = bpy.context.preferences.addons.get(__package__)
+
+    if addon is not None:
+        _save_preferences(addon.preferences)
+
     if _selection_to_cursor_rotation_enabled():
         _set_selection_to_cursor_rotation(False)
 
