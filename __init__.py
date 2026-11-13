@@ -4592,6 +4592,9 @@ _preferences_saved = None
 _known_main = None
 _known_pending = None
 
+# Preferences save status: None, "pending" or "failed".
+_save_status = None
+
 
 def preferences_directory(create=False):
     try:
@@ -4690,6 +4693,7 @@ def _store_preferences(values):
     global _known_main
     global _known_pending
     global _preferences_saved
+    global _save_status
 
     main_path, pending_path = _preferences_paths()
 
@@ -4720,6 +4724,7 @@ def _store_preferences(values):
 
     if main_error is None:
         _preferences_saved = dict(values)
+        _save_status = None
 
         # The pending file is now outdated, so removal failure is harmless.
         if _known_pending not in (None, UNREADABLE) and _remove_preferences_file(pending_path):
@@ -4728,6 +4733,7 @@ def _store_preferences(values):
         return
 
     if _known_pending == UNREADABLE:
+        _save_status = "failed"
         print(
             f"3D Cursor Transform: cannot save {main_path} ({main_error}) and {PENDING_FILENAME} cannot be read. "
             "The settings are not saved: they stay in Blender's preferences for this session, "
@@ -4745,6 +4751,7 @@ def _store_preferences(values):
     try:
         _known_pending = _write_preferences_file(pending_path, data)
     except OSError as error:
+        _save_status = "failed"
         print(
             f"3D Cursor Transform: cannot save {main_path} ({main_error}) or {PENDING_FILENAME} ({error}). "
             "The settings are not saved: they stay in Blender's preferences for this session, "
@@ -4753,6 +4760,7 @@ def _store_preferences(values):
         return
 
     _preferences_saved = dict(values)
+    _save_status = "pending"
 
     if _known_main == UNREADABLE:
         when = "the next time the extension is enabled and the file can be read"
@@ -4781,8 +4789,9 @@ def _sync_preferences():
     global _known_pending
     global _preferences_restoring
     global _preferences_saved
+    global _save_status
 
-    _known_main = _known_pending = _preferences_saved = None
+    _known_main = _known_pending = _preferences_saved = _save_status = None
     addon = bpy.context.preferences.addons.get(__package__)
     main_path, pending_path = _preferences_paths()
 
@@ -4818,6 +4827,9 @@ def _sync_preferences():
 
     source = pending_data if pending_current else main_data
     _preferences_saved = None if source is None else {key: source[key] for key in PREFERENCES_KEYS}
+
+    if pending_current:
+        _save_status = "pending"
 
     if _preferences_configured(preferences):
         values = _preferences_values(preferences)
@@ -4976,6 +4988,39 @@ class CURSORTRANSFORM_AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, _context):
         layout = self.layout
+
+        if _save_status:
+            column = layout.box().column(align=True)
+            column.alert = True
+
+            if _save_status == "failed":
+                column.label(text="Preferences could not be saved", icon='CANCEL')
+
+                message = (
+                    "Neither the main nor the pending preferences file "
+                    "could be written. Your changes may be lost when "
+                    "the extension is disabled."
+                )
+
+                if hasattr(column, "label_multiline"):
+                    column.label_multiline(text=message)
+                else:
+                    column.label(text=message)
+
+            else:
+                column.label(text="Preferences recovery pending", icon='ERROR')
+
+                message = (
+                    "The main preferences file could not be accessed. "
+                    f"Your settings were saved to {PENDING_FILENAME}. "
+                    "Recovery will be attempted when settings are next "
+                    "saved or loaded."
+                )
+
+                if hasattr(column, "label_multiline"):
+                    column.label_multiline(text=message)
+                else:
+                    column.label(text=message)
 
         box = layout.box()
         column = box.column(align=True)
